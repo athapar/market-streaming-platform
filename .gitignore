@@ -1,0 +1,28 @@
+# --- Secrets ---
+.env
+*.json
+!.vscode/*.json
+
+# --- Data (parquet seeds, spillover, gap logs) ---
+data/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.egg-info
+.pytest_cache/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- dbt ---
+target/
+dbt_packages/
+logs/
+
+# --- Local AI / agent tooling (not for public repo) ---
+.claude/
