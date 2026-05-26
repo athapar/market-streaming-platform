@@ -207,23 +207,18 @@ def write_gold_batch(
     if net_new.isEmpty():
         return
 
-    net_new.cache()
-    try:
-        # Step 2: minute bars
-        minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
-        _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS)
+    # Step 2: minute bars
+    minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
+    _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS)
 
-        # Step 3: daily rollup — full recompute for affected event_dates
-        affected_dates = net_new.select("event_date").distinct()
-        silver_snapshot = (
-            spark.read.format("delta").table(silver_table)
-            .join(F.broadcast(affected_dates), "event_date")
-        )
-        daily_rows = aggregate_daily(silver_snapshot)
-        _merge(spark, daily_rows, daily_table, DAILY_MERGE_KEYS)
-
-    finally:
-        net_new.unpersist()
+    # Step 3: daily rollup — full recompute for affected event_dates
+    affected_dates = net_new.select("event_date").distinct()
+    silver_snapshot = (
+        spark.read.format("delta").table(silver_table)
+        .join(F.broadcast(affected_dates), "event_date")
+    )
+    daily_rows = aggregate_daily(silver_snapshot)
+    _merge(spark, daily_rows, daily_table, DAILY_MERGE_KEYS)
 
 
 # ---------------------------------------------------------------------------
