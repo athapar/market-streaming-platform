@@ -23,12 +23,15 @@
 # MAGIC 6. Monitor cells ad-hoc.
 
 # COMMAND ----------
+
 # MAGIC %md ## Install package
 
 # COMMAND ----------
+
 # MAGIC %restart_python
 
 # COMMAND ----------
+
 import sys
 
 repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline"
@@ -40,15 +43,18 @@ if src_path not in sys.path:
 print(sys.path[0])
 
 # COMMAND ----------
+
 from market_streaming.gold.transforms import (
     aggregate_daily, build_gold_stream, daily_rollup_ddl, minute_bars_ddl,
 )
 print("import ok")
 
 # COMMAND ----------
+
 # MAGIC %md ## Configuration
 
 # COMMAND ----------
+
 dbutils.widgets.text(    "target_catalog",        "main",                                        "Target catalog")
 dbutils.widgets.text(    "target_schema",          "market_streaming",                            "Target schema")
 dbutils.widgets.text(    "silver_table",           "main.market_streaming.silver_market_events",  "Silver table")
@@ -66,6 +72,7 @@ silver_table     = dbutils.widgets.get("silver_table")
 minute_table     = f"{target_catalog}.{target_schema}.{dbutils.widgets.get('minute_table_name')}"
 daily_table      = f"{target_catalog}.{target_schema}.{dbutils.widgets.get('daily_table_name')}"
 checkpoint_path  = dbutils.widgets.get("checkpoint_path")
+checkpoint_path = "/Volumes/main/market_streaming/checkpoints/gold"
 trigger_type     = dbutils.widgets.get("trigger_type")
 trigger_seconds  = int(dbutils.widgets.get("trigger_seconds"))
 starting_version = int(dbutils.widgets.get("starting_version"))
@@ -78,9 +85,11 @@ print(f"trigger_type    = {trigger_type}")
 print(f"starting_version= {starting_version}")
 
 # COMMAND ----------
+
 # MAGIC %md ## DDL (idempotent)
 
 # COMMAND ----------
+
 spark.sql(f"CREATE CATALOG IF NOT EXISTS {target_catalog}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {target_catalog}.{target_schema}")
 spark.sql(minute_bars_ddl(minute_table))
@@ -88,6 +97,7 @@ spark.sql(daily_rollup_ddl(daily_table))
 display(spark.sql(f"DESCRIBE TABLE EXTENDED {minute_table}"))
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Start streaming query
 # MAGIC
@@ -96,6 +106,7 @@ display(spark.sql(f"DESCRIBE TABLE EXTENDED {minute_table}"))
 # MAGIC - `processingTime`: runs continuously (Classic cluster only).
 
 # COMMAND ----------
+
 query = build_gold_stream(
     spark=spark,
     silver_table=silver_table,
@@ -116,9 +127,11 @@ if trigger_type in ("availableNow", "once"):
     print("batch complete")
 
 # COMMAND ----------
+
 # MAGIC %md ## Monitor — minute bars
 
 # COMMAND ----------
+
 spark.sql(f"""
 SELECT
   event_date,
@@ -132,9 +145,11 @@ ORDER BY event_date DESC
 """).display()
 
 # COMMAND ----------
+
 # MAGIC %md ## Monitor — daily rollup
 
 # COMMAND ----------
+
 spark.sql(f"""
 SELECT
   composite_figi, symbol, event_date,
@@ -148,9 +163,11 @@ ORDER BY event_date DESC, symbol
 """).display()
 
 # COMMAND ----------
+
 # MAGIC %md ## Duplicate check — both tables should return zero rows
 
 # COMMAND ----------
+
 spark.sql(f"""
 SELECT 'minute_bars' AS tbl, composite_figi, window_start, COUNT(*) AS n
 FROM {minute_table}
