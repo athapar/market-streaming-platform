@@ -69,8 +69,10 @@ dbutils.widgets.text("target_schema",     "market_streaming",                  "
 dbutils.widgets.text("target_table_name", "silver_market_events",              "Target table")
 dbutils.widgets.text("bronze_table",      "main.market_streaming.bronze_market_events", "Bronze table")
 dbutils.widgets.text("seed_path",         seed_dbfs_path,                      "Seed parquet path")
-dbutils.widgets.text("checkpoint_path",   "dbfs:/checkpoints/market_streaming/silver", "Checkpoint path")
-dbutils.widgets.text("trigger_seconds",   "30",                                "Trigger interval (s)")
+dbutils.widgets.text(    "checkpoint_path",  "dbfs:/checkpoints/market_streaming/silver", "Checkpoint path")
+dbutils.widgets.dropdown("trigger_type",   "availableNow",
+                         ["availableNow", "processingTime", "once"],           "Trigger type")
+dbutils.widgets.text(    "trigger_seconds", "30",                              "Trigger seconds (processingTime only)")
 
 target_catalog   = dbutils.widgets.get("target_catalog")
 target_schema    = dbutils.widgets.get("target_schema")
@@ -78,13 +80,14 @@ target_table     = f"{target_catalog}.{target_schema}.{dbutils.widgets.get('targ
 bronze_table     = dbutils.widgets.get("bronze_table")
 seed_path        = dbutils.widgets.get("seed_path")
 checkpoint_path  = dbutils.widgets.get("checkpoint_path")
+trigger_type     = dbutils.widgets.get("trigger_type")
 trigger_seconds  = int(dbutils.widgets.get("trigger_seconds"))
 
 print(f"bronze_table    = {bronze_table}")
 print(f"target_table    = {target_table}")
 print(f"seed_path       = {seed_path}")
 print(f"checkpoint_path = {checkpoint_path}")
-print(f"trigger_seconds = {trigger_seconds}")
+print(f"trigger_type    = {trigger_type}")
 
 # COMMAND ----------
 # MAGIC %md ## DDL (idempotent)
@@ -109,12 +112,17 @@ query = build_silver_stream(
     seed_path=seed_path,
     target_table=target_table,
     checkpoint_path=checkpoint_path,
+    trigger_type=trigger_type,
     trigger_seconds=trigger_seconds,
 )
 
 print(f"query id     = {query.id}")
 print(f"query run id = {query.runId}")
 print(f"status       = {query.status}")
+
+if trigger_type in ("availableNow", "once"):
+    query.awaitTermination()
+    print("batch complete")
 
 # COMMAND ----------
 # MAGIC %md

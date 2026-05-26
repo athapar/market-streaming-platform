@@ -100,10 +100,28 @@ def read_kafka_stream(
     )
 
 
+def _apply_trigger(writer: "DataStreamWriter", trigger_type: str, trigger_seconds: int) -> "DataStreamWriter":
+    """
+    Apply the correct trigger based on cluster capabilities.
+
+    - "processingTime": continuous micro-batch (requires non-Serverless cluster).
+    - "availableNow":   process all data currently in source then stop. Use on
+                        Databricks Free Edition / Serverless, or for one-shot
+                        backfills. Re-run the cell to catch up again.
+    - "once":           legacy single-batch equivalent of availableNow.
+    """
+    if trigger_type == "availableNow":
+        return writer.trigger(availableNow=True)
+    if trigger_type == "once":
+        return writer.trigger(once=True)
+    return writer.trigger(processingTime=f"{trigger_seconds} seconds")
+
+
 def write_bronze_stream(
     enriched_df: "DataFrame",
     checkpoint_path: str,
     target_table: str,
+    trigger_type: str = "availableNow",
     trigger_seconds: int = 10,
 ) -> "StreamingQuery":
     """
@@ -111,15 +129,18 @@ def write_bronze_stream(
     (the only legal mode for an unbounded source without aggregation), and
     mergeSchema is OFF: we want the writer to fail loudly if someone forgets
     to update the DDL when adding a column, rather than silently evolve.
+
+    trigger_type defaults to "availableNow" so the notebook works on
+    Databricks Free Edition (Serverless). Switch to "processingTime" on a
+    Classic cluster for continuous streaming.
     """
-    return (
+    writer = (
         enriched_df.writeStream.format("delta")
         .outputMode("append")
         .option("checkpointLocation", checkpoint_path)
         .option("mergeSchema", "false")
-        .trigger(processingTime=f"{trigger_seconds} seconds")
-        .toTable(target_table)
     )
+    return _apply_trigger(writer, trigger_type, trigger_seconds).toTable(target_table)
 
 
 def build_bronze_stream(
@@ -131,6 +152,7 @@ def build_bronze_stream(
     checkpoint_path: str,
     target_table: str,
     starting_offsets: str = "latest",
+    trigger_type: str = "availableNow",
     trigger_seconds: int = 10,
 ) -> "StreamingQuery":
     raw = read_kafka_stream(
@@ -138,7 +160,9 @@ def build_bronze_stream(
         subscribe_pattern, starting_offsets,
     )
     enriched = enrich_bronze(raw)
-    return write_bronze_stream(enriched, checkpoint_path, target_table, trigger_seconds)
+    return write_bronze_stream(
+        enriched, checkpoint_path, target_table, trigger_type, trigger_seconds
+    )
 
 
 def bronze_ddl(target_table: str) -> str:

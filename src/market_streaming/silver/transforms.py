@@ -226,13 +226,19 @@ def build_silver_stream(
     seed_path: str,
     target_table: str,
     checkpoint_path: str,
+    trigger_type: str = "availableNow",
     trigger_seconds: int = 30,
 ) -> "StreamingQuery":
     """Wire Bronze Delta stream → parse → FIGI join → MERGE into Silver.
 
     Reads Bronze as a Delta stream (not Kafka directly) so Silver's checkpoint
     is independent of Bronze's and each layer can be rebuilt individually.
+
+    trigger_type defaults to "availableNow" for Databricks Free Edition
+    (Serverless). Switch to "processingTime" on a Classic cluster.
     """
+    from pyspark.sql import functions as F  # noqa: F401  (needed inside lambda)
+
     seed_df = spark.read.parquet(seed_path)
 
     bronze_stream = (
@@ -249,13 +255,20 @@ def build_silver_stream(
         .select(SILVER_COLUMNS)
     )
 
-    return (
+    writer = (
         silver_stream.writeStream
         .format("delta")
         .foreachBatch(
             lambda df, bid: merge_silver_batch(df, bid, target_table)
         )
         .option("checkpointLocation", checkpoint_path)
-        .trigger(processingTime=f"{trigger_seconds} seconds")
-        .start()
     )
+
+    if trigger_type == "availableNow":
+        writer = writer.trigger(availableNow=True)
+    elif trigger_type == "once":
+        writer = writer.trigger(once=True)
+    else:
+        writer = writer.trigger(processingTime=f"{trigger_seconds} seconds")
+
+    return writer.start()
