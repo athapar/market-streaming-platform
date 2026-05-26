@@ -22,13 +22,28 @@
 # MAGIC   Requires a Classic (non-Serverless) cluster.
 
 # COMMAND ----------
+
 # MAGIC %md ## Install package
 
 # COMMAND ----------
-# MAGIC %pip install -e /Workspace/Repos/armaant.08@gmail.com/market-streaming-pipeline
-# MAGIC %restart_python
+import sys
+
+repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline"
+src_path = f"{repo_root}/src"
+
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+print(sys.path[0])
+
 
 # COMMAND ----------
+
+from market_streaming.bronze.transforms import *
+print("import worked")
+
+# COMMAND ----------
+
 # MAGIC %md ## Configuration
 
 # COMMAND ----------
@@ -42,6 +57,7 @@ dbutils.widgets.dropdown("trigger_type",      "availableNow",
                          ["availableNow", "processingTime", "once"],               "Trigger type")
 dbutils.widgets.text(    "trigger_seconds",   "10",                                "Trigger seconds (processingTime only)")
 dbutils.widgets.text(    "secret_scope",      "market-streaming",                  "Secret scope")
+
 
 target_catalog    = dbutils.widgets.get("target_catalog")
 target_schema     = dbutils.widgets.get("target_schema")
@@ -64,9 +80,11 @@ print(f"starting_offsets  = {starting_offsets}")
 print(f"trigger_type      = {trigger_type}")
 
 # COMMAND ----------
+
 # MAGIC %md ## DDL (idempotent)
 
 # COMMAND ----------
+
 from market_streaming.bronze.transforms import bronze_ddl
 
 spark.sql(f"CREATE CATALOG IF NOT EXISTS {target_catalog}")
@@ -84,6 +102,7 @@ display(spark.sql(f"DESCRIBE TABLE EXTENDED {target_table}"))
 # MAGIC   background. Stop it with `query.stop()`.
 
 # COMMAND ----------
+
 from market_streaming.bronze.transforms import build_bronze_stream
 
 query = build_bronze_stream(
@@ -124,3 +143,5 @@ FROM {target_table}
 GROUP BY kafka_topic, kafka_partition
 ORDER BY kafka_topic, kafka_partition
 """).display()
+
+
