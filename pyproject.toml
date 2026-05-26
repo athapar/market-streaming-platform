@@ -17,11 +17,19 @@ dependencies = [
 producer = [
     "confluent-kafka>=2.5",
     "websockets>=12",
+    "prometheus-client>=0.20",
+    "structlog>=24",
 ]
 recon = [
     "dbt-core>=1.8",
     "dbt-snowflake>=1.8",
     "snowflake-connector-python>=3.10",
+]
+dashboard = [
+    "streamlit>=1.35",
+    "plotly>=5.22",
+    "snowflake-connector-python>=3.10",
+    "pandas>=2.2",
 ]
 dev = [
     "pytest>=8",

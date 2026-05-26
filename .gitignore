@@ -2,7 +2,7 @@
 .env
 *.json
 !.vscode/*.json
-
+api_resources/
 # --- Data (parquet seeds, spillover, gap logs) ---
 data/
 
@@ -30,4 +30,7 @@ logs/
 # --- Internal planning docs (not for public repo) ---
 spec.md
 implementation.md
+upgrade_plan.md
+upgrade_implementation_steps.md
 docs/
+api_resources/
