@@ -33,6 +33,47 @@ sources:
           - name: SILVER_TIMESTAMP
             description: Timestamp the Silver row was written (pipeline lineage).
 
+      - name: GOLD_TRADES
+        description: >
+          Tick-level trade data. One row per executed trade per (composite_figi, trade_id).
+          Synced from Databricks Gold via Snowflake sync notebook.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: SYMBOL
+          - name: TRADE_ID
+            description: Globally unique trade identifier from Polygon.
+          - name: TRADE_PRICE
+          - name: TRADE_SIZE
+            description: Number of shares in this trade.
+          - name: EXCHANGE_ID
+          - name: TAPE
+          - name: SIP_TIMESTAMP
+            description: SIP-reported trade timestamp (nanosecond precision, stored as TIMESTAMP_NTZ).
+          - name: TRADE_DATE
+          - name: SILVER_TIMESTAMP
+
+      - name: GOLD_QUOTE_STATS
+        description: >
+          Pre-aggregated NBBO quote statistics. One row per (composite_figi, minute).
+          Aggregated from raw Silver quotes in the Gold layer to manage Snowflake volume.
+          Covers ~20 high-liquidity symbols with quote subscriptions.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: SYMBOL
+          - name: WINDOW_START
+            description: Start of the 1-minute aggregation window.
+          - name: QUOTE_DATE
+          - name: QUOTE_COUNT
+            description: Number of NBBO updates in this minute.
+          - name: AVG_SPREAD_BPS
+            description: Average quoted spread in basis points.
+          - name: MIN_SPREAD_BPS
+          - name: MAX_SPREAD_BPS
+          - name: AVG_MID_PRICE
+          - name: ORDER_IMBALANCE
+            description: (bid_size - ask_size) / (bid_size + ask_size). Positive = buy pressure.
+          - name: UPDATED_AT
+
       - name: GOLD_DAILY_ROLLUP
         description: >
           Full-day OHLCV aggregated from all minute bars for a trading date.
@@ -52,6 +93,30 @@ sources:
           - name: FIRST_BAR_START
           - name: LAST_BAR_START
           - name: UPDATED_AT
+
+  - name: ops
+    database: MARKET_STREAMING
+    schema: OPS
+    description: >
+      Pipeline operational metrics written by the Spark foreachBatch handlers.
+      One row per (layer, batch_id) recording execution time, row counts, and status.
+    tables:
+      - name: PIPELINE_BATCH_METRICS
+        description: >
+          Per-batch execution metrics. Written by the BatchTracker context manager
+          in each Spark streaming layer. Tracks rows_in, rows_out, duration_ms,
+          and error status for observability.
+        columns:
+          - name: LAYER
+            description: Pipeline layer (bronze, silver, gold).
+          - name: BATCH_ID
+          - name: ROWS_IN
+          - name: ROWS_OUT
+          - name: DURATION_MS
+          - name: STARTED_AT
+          - name: COMPLETED_AT
+          - name: STATUS
+          - name: ERROR_MESSAGE
 
   - name: recon
     database: MARKET_STREAMING

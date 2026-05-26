@@ -1,0 +1,147 @@
+version: 2
+
+models:
+  - name: mart_analytics__daily_stats
+    description: >
+      Daily per-symbol statistics including realized volatility (annualized from
+      minute returns), Garman-Klass volatility, dollar volume, VWAP deviation,
+      and 20-day rolling averages. One row per (symbol, event_date).
+    columns:
+      - name: composite_figi
+        tests: [not_null]
+      - name: symbol
+        tests: [not_null]
+      - name: event_date
+        tests: [not_null]
+      - name: realized_vol_ann_pct
+        description: Annualized realized volatility from intraday minute log returns (%).
+      - name: garman_klass_vol_ann_pct
+        description: Garman-Klass OHLC volatility estimator, annualized (%).
+      - name: volume_zscore
+        description: Volume z-score vs 20-day rolling mean. >2.0 signals unusual volume.
+      - name: total_dollar_volume
+        description: Sum of close × volume across all minute bars for the day.
+
+  - name: mart_analytics__rolling_risk
+    description: >
+      Rolling 20-day CAPM risk metrics per symbol vs SPY benchmark.
+      Includes beta, alpha, correlation, Sharpe ratio, and annualized volatility.
+    columns:
+      - name: symbol
+        tests: [not_null]
+      - name: price_date
+        tests: [not_null]
+      - name: rolling_beta
+        description: >
+          cov(r_i, r_spy) / var(r_spy) over trailing 20 days.
+          Beta > 1 = more volatile than market. Requires >= 10 observations.
+      - name: rolling_correlation
+        description: Pearson correlation of daily log returns with SPY.
+      - name: rolling_sharpe
+        description: Annualized Sharpe ratio approximation (no risk-free subtraction).
+
+  - name: mart_analytics__volume_profile
+    description: >
+      Intraday volume profile by 30-minute bucket per symbol. Shows the classic
+      U-shaped activity curve and identifies high/low liquidity windows.
+    columns:
+      - name: symbol
+        tests: [not_null]
+      - name: bucket_id
+        description: Time-of-day bucket identifier (e.g. 930 = 09:30, 1000 = 10:00).
+        tests: [not_null]
+      - name: relative_volume
+        description: >
+          This bucket's avg volume / symbol's overall avg volume.
+          >1.0 = above-average activity window.
+
+  - name: mart_analytics__unusual_activity
+    description: >
+      Flags unusual trading days using z-scores against 20-day rolling baselines.
+      Classifies events as volume spikes, volatility spikes, large moves,
+      or range expansions. Observational only — not trading signals.
+    columns:
+      - name: symbol
+        tests: [not_null]
+      - name: event_date
+        tests: [not_null]
+      - name: activity_classification
+        tests:
+          - accepted_values:
+              values:
+                - NORMAL
+                - VOLUME_SPIKE
+                - VOLATILITY_SPIKE
+                - LARGE_MOVE
+                - RANGE_EXPANSION
+                - VOLUME_AND_VOL_SPIKE
+                - LARGE_MOVE_HIGH_VOLUME
+
+  - name: mart_analytics__microstructure_daily
+    description: >
+      Daily microstructure summary per symbol. Trade metrics (tick-rule classified
+      buy/sell volume, block trades, trade imbalance) joined with quote metrics
+      (bid-ask spread in bps, order imbalance, quote-to-trade ratio). Symbols
+      without quote subscriptions still get trade-side metrics.
+    columns:
+      - name: symbol
+        tests: [not_null]
+      - name: trade_date
+        tests: [not_null]
+      - name: avg_spread_bps
+        description: Average quoted bid-ask spread in basis points (null if no quote subscription).
+      - name: trade_imbalance
+        description: >
+          (buy_dollar_volume - sell_dollar_volume) / total_dollar_volume.
+          Positive = net buying pressure. Classified via tick rule.
+      - name: buy_volume_pct
+        description: Percentage of dollar volume classified as buyer-initiated via tick rule.
+      - name: block_trade_count
+        description: Trades >= 10K shares or >= $500K notional.
+      - name: quote_to_trade_ratio
+        description: Total quotes / total trades. Higher = more competitive quoting.
+
+  - name: mart_analytics__spread_profile
+    description: >
+      Intraday spread and activity profile by 30-minute bucket per symbol.
+      Shows the U-shaped spread pattern (wider at open/close, tighter midday)
+      combined with trade activity. Only for symbols with quote subscriptions.
+    columns:
+      - name: symbol
+        tests: [not_null]
+      - name: bucket_id
+        tests: [not_null]
+      - name: relative_spread
+        description: >
+          This bucket's avg spread / symbol's overall avg spread.
+          >1.0 = wider than average (typically open/close).
+
+  - name: mart_analytics__trade_size_distribution
+    description: >
+      Daily trade size distribution per symbol. Classifies trades into ODD_LOT
+      (< 100 shares, retail-indicative), ROUND_LOT (100-9,999), and BLOCK
+      (>= 10K shares or >= $500K notional). Shows concentration of activity
+      across participant types.
+    columns:
+      - name: symbol
+        tests: [not_null]
+      - name: trade_date
+        tests: [not_null]
+      - name: size_class
+        tests:
+          - accepted_values:
+              values: [ODD_LOT, ROUND_LOT, BLOCK]
+      - name: pct_of_dollar_volume
+        description: This size class as % of total dollar volume for the day.
+
+  - name: mart_analytics__correlation_matrix
+    description: >
+      Trailing 20-day pairwise return correlations across the tracked universe.
+      Upper triangle only (symbol_a <= symbol_b). Used for heatmap visualization.
+    columns:
+      - name: symbol_a
+        tests: [not_null]
+      - name: symbol_b
+        tests: [not_null]
+      - name: correlation
+        description: Pearson correlation of daily log returns over trailing 20 days.
