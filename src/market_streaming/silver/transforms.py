@@ -122,18 +122,22 @@ def parse_silver(df: "DataFrame") -> "DataFrame":
 def join_security_master(df: "DataFrame", seed_df: "DataFrame") -> "DataFrame":
     """Broadcast-join symbol → composite_figi from the static seed Parquet.
 
+    The seed script writes `ticker AS symbol`, so the join key in the Parquet
+    is `symbol`. We alias it to `_seed_symbol` before joining to avoid column
+    ambiguity with the `symbol` column already present in df.
+
     The seed is tiny (5 rows for this universe). Symbols absent from the seed
     land with NULL composite_figi — no data dropped, downstream Gold filters
     can handle or alert on NULLs.
     """
     figi_map = seed_df.select(
-        F.col("ticker"),
+        F.col("symbol").alias("_seed_symbol"),
         F.col("composite_figi"),
     )
     return (
         df
-        .join(F.broadcast(figi_map), df["symbol"] == figi_map["ticker"], "left")
-        .drop("ticker")
+        .join(F.broadcast(figi_map), df["symbol"] == figi_map["_seed_symbol"], "left")
+        .drop("_seed_symbol")
     )
 
 

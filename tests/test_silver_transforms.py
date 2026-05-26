@@ -57,8 +57,9 @@ def _bronze_schema() -> StructType:
 
 
 def _seed_schema() -> StructType:
+    # seed_security_master.py writes `ticker AS symbol`, so the column is "symbol"
     return StructType([
-        StructField("ticker",         StringType(), True),
+        StructField("symbol",         StringType(), True),
         StructField("composite_figi", StringType(), True),
     ])
 
