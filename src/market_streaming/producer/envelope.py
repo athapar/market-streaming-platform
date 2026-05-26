@@ -6,37 +6,36 @@ mutate Polygon's JSON. We emit one Kafka message per Polygon event with:
     key   = symbol               (preserves per-symbol ordering within a partition)
     value = original event JSON  (verbatim, what Polygon sent)
 
-Current channel scope: minute aggregates (AM) only. The Stocks Starter plan
-includes delayed AM events but not T (trades) or Q (quotes); see
-docs/phase1_provisioning.md. The routing table below is structured so that
-upgrading the plan and adding T/Q is a one-line change in route_event plus a
-channel config update — no architectural refactor needed.
+Channel scope: minute aggregates (AM), trades (T), and quotes (Q). The Stocks
+Advanced plan provides real-time access to all three channels. The routing table
+maps each Polygon event type to a Kafka topic. Bronze ingests all topics via
+subscribePattern and stores raw JSON — schema differences between AM/T/Q are
+handled in the Silver layer.
 """
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
 EVENT_TYPE_MINUTE_AGG = "AM"
 EVENT_TYPE_SECOND_AGG = "A"
-EVENT_TYPE_TRADE = "T"  # not yet enabled; needs plan upgrade
-EVENT_TYPE_QUOTE = "Q"  # not yet enabled; needs plan upgrade
+EVENT_TYPE_TRADE = "T"
+EVENT_TYPE_QUOTE = "Q"
 EVENT_TYPE_STATUS = "status"
 
 TOPIC_AGGREGATES = "market.aggregates"
-TOPIC_TRADES = "market.trades"  # reserved; unused until plan upgrade
-TOPIC_QUOTES = "market.quotes"  # reserved; unused until plan upgrade
+TOPIC_TRADES = "market.trades"
+TOPIC_QUOTES = "market.quotes"
 
-# Active topics this producer publishes to. Topic-creation and Bronze ingestion
-# read this list, so adding T/Q later means appending entries here.
-ACTIVE_TOPICS: tuple[str, ...] = (TOPIC_AGGREGATES,)
+ACTIVE_TOPICS: tuple[str, ...] = (TOPIC_AGGREGATES, TOPIC_TRADES, TOPIC_QUOTES)
 
 _EVENT_TO_TOPIC: dict[str, str] = {
     EVENT_TYPE_MINUTE_AGG: TOPIC_AGGREGATES,
     EVENT_TYPE_SECOND_AGG: TOPIC_AGGREGATES,
-    # EVENT_TYPE_TRADE: TOPIC_TRADES,
-    # EVENT_TYPE_QUOTE: TOPIC_QUOTES,
+    EVENT_TYPE_TRADE: TOPIC_TRADES,
+    EVENT_TYPE_QUOTE: TOPIC_QUOTES,
 }
 
 
@@ -45,13 +44,16 @@ class Envelope:
     topic: str
     key: str
     value: str
+    trace_id: str = ""
 
     def to_spillover_record(self) -> dict[str, str]:
-        return {"topic": self.topic, "key": self.key, "value": self.value}
+        return {"topic": self.topic, "key": self.key, "value": self.value,
+                "trace_id": self.trace_id}
 
     @classmethod
     def from_spillover_record(cls, record: dict[str, str]) -> "Envelope":
-        return cls(topic=record["topic"], key=record["key"], value=record["value"])
+        return cls(topic=record["topic"], key=record["key"], value=record["value"],
+                   trace_id=record.get("trace_id", ""))
 
 
 def route_event(event: dict[str, Any]) -> Envelope | None:
@@ -65,4 +67,9 @@ def route_event(event: dict[str, Any]) -> Envelope | None:
     symbol = event.get("sym")
     if not symbol:
         return None
-    return Envelope(topic=topic, key=symbol, value=json.dumps(event, separators=(",", ":")))
+    trace_id = uuid.uuid4().hex[:12]
+    return Envelope(
+        topic=topic, key=symbol,
+        value=json.dumps(event, separators=(",", ":")),
+        trace_id=trace_id,
+    )

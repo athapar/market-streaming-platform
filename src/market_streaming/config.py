@@ -12,6 +12,7 @@ SPILLOVER_DIR = DATA_DIR / "spillover"
 SYMBOLS_PATH = PROJECT_ROOT / "symbols.txt"
 
 SECURITY_MASTER_SEED_PATH = SEED_DIR / "security_master_current.parquet"
+QUOTE_SYMBOLS_PATH = PROJECT_ROOT / "quote_symbols.txt"
 
 
 def require_env(name: str) -> str:
@@ -27,3 +28,9 @@ def optional_env(name: str, default: str | None = None) -> str | None:
 
 def load_symbols() -> list[str]:
     return [s.strip().upper() for s in SYMBOLS_PATH.read_text().splitlines() if s.strip()]
+
+
+def load_quote_symbols() -> list[str]:
+    if not QUOTE_SYMBOLS_PATH.exists():
+        return []
+    return [s.strip().upper() for s in QUOTE_SYMBOLS_PATH.read_text().splitlines() if s.strip()]

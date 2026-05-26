@@ -16,12 +16,14 @@ write the envelope to spillover. The replay script picks them up later.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Callable, Protocol
 
 from confluent_kafka import KafkaError, Producer
 
 from market_streaming.producer.envelope import Envelope
 from market_streaming.producer.metrics import Metrics
+from market_streaming.observability.alerts import alert_kafka_failures
 
 log = logging.getLogger(__name__)
 
@@ -68,27 +70,31 @@ class KafkaSink:
             if err is None:
                 self._metrics.mark_kafka_ack()
                 return
-            self._metrics.kafka_failed += 1
+            self._metrics.mark_kafka_fail()
             log.warning("kafka delivery failed: %s; spilling envelope", err)
             self._spillover.write(envelope)
-            self._metrics.spillover_written += 1
+            self._metrics.mark_spillover()
+            if self._metrics.kafka_failed > 0 and self._metrics.kafka_failed % 100 == 0:
+                alert_kafka_failures(self._metrics.kafka_failed, str(err))
         return cb
 
     def publish(self, envelope: Envelope) -> None:
+        t0 = time.monotonic()
+        headers = {"trace_id": envelope.trace_id.encode()} if envelope.trace_id else None
         try:
             self._producer.produce(
                 topic=envelope.topic,
                 key=envelope.key,
                 value=envelope.value,
+                headers=headers,
                 on_delivery=self._make_callback(envelope),
             )
-            self._metrics.kafka_produced += 1
+            self._metrics.mark_kafka_produced()
+            self._metrics.observe_produce_latency(time.monotonic() - t0)
         except BufferError:
-            # Local queue full — librdkafka can't accept more. Spill immediately.
             log.warning("local producer queue full; spilling envelope")
             self._spillover.write(envelope)
-            self._metrics.spillover_written += 1
-        # Serve delivery callbacks without blocking.
+            self._metrics.mark_spillover()
         self._producer.poll(0)
 
     def flush(self, timeout_s: float = 10.0) -> int:
@@ -104,7 +110,7 @@ class DryRunSink:
         self._sample_every = sample_every
 
     def publish(self, envelope: Envelope) -> None:
-        self._metrics.kafka_produced += 1
+        self._metrics.mark_kafka_produced()
         self._metrics.mark_kafka_ack()
         if self._metrics.kafka_produced % self._sample_every == 1:
             print(f"[dry-run sample] topic={envelope.topic} key={envelope.key} value={envelope.value[:200]}")

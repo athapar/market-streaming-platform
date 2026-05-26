@@ -27,11 +27,12 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketExce
 
 from market_streaming.producer.metrics import Metrics
 from market_streaming.producer.spillover import write_gap
+from market_streaming.observability.alerts import alert_reconnect
 
 log = logging.getLogger(__name__)
 
-DEFAULT_WS_URL = "wss://delayed.polygon.io/stocks"
-DEFAULT_CHANNELS: tuple[str, ...] = ("AM",)  # minute aggregates; Stocks Starter tier
+DEFAULT_WS_URL = "wss://socket.polygon.io/stocks"
+DEFAULT_CHANNELS: tuple[str, ...] = ("AM", "T", "Q")
 
 
 class AuthError(RuntimeError):
@@ -41,12 +42,20 @@ class AuthError(RuntimeError):
 def build_subscription_params(
     symbols: Iterable[str],
     channels: Iterable[str] = DEFAULT_CHANNELS,
+    channel_symbol_overrides: dict[str, Iterable[str]] | None = None,
 ) -> str:
-    """Build a Polygon subscribe params string like 'AM.AAPL,AM.MSFT' (or with
-    multiple channel prefixes if subscribing to T.*/Q.* later)."""
+    """Build a Polygon subscribe params string like 'AM.AAPL,AM.MSFT,T.AAPL,...'.
+
+    By default every channel subscribes to all symbols. Use channel_symbol_overrides
+    to restrict specific channels to a subset — e.g. ``{"Q": quote_symbols}`` to
+    receive quotes only for the 20 most-liquid names while trades and aggregates
+    cover the full universe.
+    """
+    overrides = channel_symbol_overrides or {}
     parts: list[str] = []
     for channel in channels:
-        for sym in symbols:
+        chan_symbols = overrides.get(channel, symbols)
+        for sym in chan_symbols:
             parts.append(f"{channel}.{sym}")
     return ",".join(parts)
 
@@ -79,6 +88,7 @@ async def stream_events(
     gaps_dir: Path,
     ws_url: str = DEFAULT_WS_URL,
     channels: Iterable[str] = DEFAULT_CHANNELS,
+    channel_symbol_overrides: dict[str, Iterable[str]] | None = None,
     backoff_initial_s: float = 1.0,
     backoff_max_s: float = 60.0,
 ) -> AsyncIterator[dict]:
@@ -86,7 +96,7 @@ async def stream_events(
     Connect to Polygon, auth, subscribe, and yield event dicts forever.
     Reconnects with exponential backoff on any disconnect.
     """
-    subscription = build_subscription_params(symbols, channels)
+    subscription = build_subscription_params(symbols, channels, channel_symbol_overrides)
     backoff = backoff_initial_s
 
     while True:
@@ -110,7 +120,7 @@ async def stream_events(
                             metrics.polygon_status_frames += 1
                             log.info("polygon status: %s", frame)
                             continue
-                        metrics.mark_polygon_event()
+                        metrics.mark_polygon_event(frame.get("ev", "unknown"))
                         yield frame
         except AuthError:
             raise  # don't retry auth failures
@@ -128,5 +138,6 @@ async def stream_events(
             await asyncio.sleep(backoff)
             reconnect_at = datetime.now(timezone.utc)
             write_gap(gaps_dir, disconnect_at, reconnect_at, reason)
-            metrics.reconnects += 1
+            metrics.mark_reconnect()
+            alert_reconnect(disconnect_at, reconnect_at, reason)
             backoff = min(backoff * 2, backoff_max_s)
