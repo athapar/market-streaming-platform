@@ -184,6 +184,7 @@ def write_gold_batch(
     silver_table: str,
     minute_table: str,
     daily_table: str,
+    metrics_table: str | None = None,
 ) -> None:
     """Process one CDF micro-batch into both Gold tables.
 
@@ -197,28 +198,40 @@ def write_gold_batch(
     """
     spark = batch_df.sparkSession
 
-    # Step 1: net-new / updated rows from CDF
-    net_new = (
-        batch_df
-        .filter(F.col("_change_type").isin("insert", "update_postimage"))
-        .drop("_change_type", "_commit_version", "_commit_timestamp")
-    )
+    def _do_write(tracker=None):
+        net_new = (
+            batch_df
+            .filter(F.col("_change_type").isin("insert", "update_postimage"))
+            .drop("_change_type", "_commit_version", "_commit_timestamp")
+        )
 
-    if net_new.isEmpty():
-        return
+        if net_new.isEmpty():
+            if tracker:
+                tracker.record(rows_in=0, rows_out=0)
+            return
 
-    # Step 2: minute bars
-    minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
-    _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS)
+        rows_in = net_new.count()
 
-    # Step 3: daily rollup — full recompute for affected event_dates
-    affected_dates = net_new.select("event_date").distinct()
-    silver_snapshot = (
-        spark.read.format("delta").table(silver_table)
-        .join(F.broadcast(affected_dates), "event_date")
-    )
-    daily_rows = aggregate_daily(silver_snapshot)
-    _merge(spark, daily_rows, daily_table, DAILY_MERGE_KEYS)
+        minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
+        _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS)
+
+        affected_dates = net_new.select("event_date").distinct()
+        silver_snapshot = (
+            spark.read.format("delta").table(silver_table)
+            .join(F.broadcast(affected_dates), "event_date")
+        )
+        daily_rows = aggregate_daily(silver_snapshot)
+        _merge(spark, daily_rows, daily_table, DAILY_MERGE_KEYS)
+
+        if tracker:
+            tracker.record(rows_in=rows_in, rows_out=rows_in)
+
+    if metrics_table:
+        from market_streaming.observability.pipeline_metrics import track_batch
+        with track_batch(spark, metrics_table, "gold", batch_id) as tracker:
+            _do_write(tracker)
+    else:
+        _do_write()
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +247,7 @@ def build_gold_stream(
     trigger_type: str = "availableNow",
     trigger_seconds: int = 60,
     starting_version: int = 0,
+    metrics_table: str | None = None,
 ) -> "StreamingQuery":
     """Read Silver CDF stream → write_gold_batch → both Gold tables.
 
@@ -254,7 +268,7 @@ def build_gold_stream(
         .format("delta")
         .foreachBatch(
             lambda df, bid: write_gold_batch(
-                df, bid, silver_table, minute_table, daily_table
+                df, bid, silver_table, minute_table, daily_table, metrics_table
             )
         )
         .option("checkpointLocation", checkpoint_path)

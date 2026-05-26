@@ -182,6 +182,7 @@ def merge_silver_batch(
     batch_df: "DataFrame",
     batch_id: int,
     target_table: str,
+    metrics_table: str | None = None,
 ) -> None:
     """foreachBatch handler: dedup within the micro-batch then MERGE into Silver.
 
@@ -198,30 +199,43 @@ def merge_silver_batch(
     if batch_df.isEmpty():
         return
 
-    # Step 1: dedup within batch, latest kafka_offset wins
-    window_spec = Window.partitionBy(*MERGE_KEYS).orderBy(
-        F.col("kafka_offset").desc()
-    )
-    deduped = (
-        batch_df
-        .withColumn("_rn", F.row_number().over(window_spec))
-        .filter(F.col("_rn") == 1)
-        .drop("_rn")
-    )
-
-    # Step 2: MERGE into target
     spark = batch_df.sparkSession
-    dt = DeltaTable.forName(spark, target_table)
-    merge_condition = " AND ".join(
-        f"tgt.{k} = src.{k}" for k in MERGE_KEYS
-    )
-    (
-        dt.alias("tgt")
-        .merge(deduped.alias("src"), merge_condition)
-        .whenMatchedUpdateAll()
-        .whenNotMatchedInsertAll()
-        .execute()
-    )
+
+    def _do_merge(tracker=None):
+        rows_in = batch_df.count()
+
+        window_spec = Window.partitionBy(*MERGE_KEYS).orderBy(
+            F.col("kafka_offset").desc()
+        )
+        deduped = (
+            batch_df
+            .withColumn("_rn", F.row_number().over(window_spec))
+            .filter(F.col("_rn") == 1)
+            .drop("_rn")
+        )
+        rows_out = deduped.count()
+
+        if tracker:
+            tracker.record(rows_in=rows_in, rows_out=rows_out)
+
+        dt = DeltaTable.forName(spark, target_table)
+        merge_condition = " AND ".join(
+            f"tgt.{k} = src.{k}" for k in MERGE_KEYS
+        )
+        (
+            dt.alias("tgt")
+            .merge(deduped.alias("src"), merge_condition)
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+    if metrics_table:
+        from market_streaming.observability.pipeline_metrics import track_batch
+        with track_batch(spark, metrics_table, "silver", batch_id) as tracker:
+            _do_merge(tracker)
+    else:
+        _do_merge()
 
 
 def build_silver_stream(
@@ -232,6 +246,7 @@ def build_silver_stream(
     checkpoint_path: str,
     trigger_type: str = "availableNow",
     trigger_seconds: int = 30,
+    metrics_table: str | None = None,
 ) -> "StreamingQuery":
     """Wire Bronze Delta stream → parse → FIGI join → MERGE into Silver.
 
@@ -263,7 +278,7 @@ def build_silver_stream(
         silver_stream.writeStream
         .format("delta")
         .foreachBatch(
-            lambda df, bid: merge_silver_batch(df, bid, target_table)
+            lambda df, bid: merge_silver_batch(df, bid, target_table, metrics_table)
         )
         .option("checkpointLocation", checkpoint_path)
     )
