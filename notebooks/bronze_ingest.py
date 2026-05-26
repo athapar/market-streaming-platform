@@ -26,6 +26,7 @@
 # MAGIC %md ## Install package
 
 # COMMAND ----------
+
 import sys
 
 repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline"
@@ -47,6 +48,7 @@ print("import worked")
 # MAGIC %md ## Configuration
 
 # COMMAND ----------
+
 dbutils.widgets.text(    "target_catalog",    "main",                              "Target catalog")
 dbutils.widgets.text(    "target_schema",     "market_streaming",                  "Target schema")
 dbutils.widgets.text(    "target_table_name", "bronze_market_events",              "Target table")
@@ -64,6 +66,7 @@ target_schema     = dbutils.widgets.get("target_schema")
 target_table      = f"{target_catalog}.{target_schema}.{dbutils.widgets.get('target_table_name')}"
 subscribe_pattern = dbutils.widgets.get("subscribe_pattern")
 checkpoint_path   = dbutils.widgets.get("checkpoint_path")
+checkpoint_path = "/Volumes/main/market_streaming/checkpoints/bronze"
 starting_offsets  = dbutils.widgets.get("starting_offsets")
 trigger_type      = dbutils.widgets.get("trigger_type")
 trigger_seconds   = int(dbutils.widgets.get("trigger_seconds"))
@@ -93,6 +96,7 @@ spark.sql(bronze_ddl(target_table))
 display(spark.sql(f"DESCRIBE TABLE EXTENDED {target_table}"))
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Start streaming query
 # MAGIC
@@ -129,9 +133,11 @@ if trigger_type in ("availableNow", "once"):
     print("batch complete")
 
 # COMMAND ----------
+
 # MAGIC %md ## Verify rows landed
 
 # COMMAND ----------
+
 spark.sql(f"""
 SELECT
   kafka_topic, kafka_partition,
@@ -143,5 +149,4 @@ FROM {target_table}
 GROUP BY kafka_topic, kafka_partition
 ORDER BY kafka_topic, kafka_partition
 """).display()
-
 
