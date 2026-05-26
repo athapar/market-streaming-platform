@@ -19,13 +19,32 @@
 # MAGIC be restarted independently.
 
 # COMMAND ----------
+
 # MAGIC %md ## Install package
 
 # COMMAND ----------
-# MAGIC %pip install -e /Workspace/Repos/armaant.08@gmail.com/market-streaming-pipeline
+
 # MAGIC %restart_python
 
 # COMMAND ----------
+
+import sys
+
+repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline"
+src_path = f"{repo_root}/src"
+
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+print(sys.path[0])
+
+# COMMAND ----------
+
+from market_streaming.bronze.transforms import *
+print("import worked")
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Seed — upload security_master.parquet to DBFS (one-time)
 # MAGIC
@@ -44,7 +63,8 @@
 # MAGIC 4. Run the cell below to confirm.
 
 # COMMAND ----------
-seed_dbfs_path = "dbfs:/seeds/market_streaming/security_master.parquet"
+
+seed_dbfs_path = "/Workspace/Users/armaant.08@gmail.com/security_master_current.parquet"
 
 try:
     files = dbutils.fs.ls(seed_dbfs_path)
@@ -52,7 +72,7 @@ try:
     # Quick sanity check: print row count
     _seed_check = spark.read.parquet(seed_dbfs_path)
     print(f"seed rows  : {_seed_check.count()}")
-    _seed_check.select("ticker", "composite_figi").show()
+    _seed_check.select("symbol", "composite_figi").show()
 except Exception as e:
     raise RuntimeError(
         f"Security master seed not found at {seed_dbfs_path}.\n"
@@ -61,9 +81,11 @@ except Exception as e:
     ) from e
 
 # COMMAND ----------
+
 # MAGIC %md ## Configuration
 
 # COMMAND ----------
+
 dbutils.widgets.text("target_catalog",    "main",                              "Target catalog")
 dbutils.widgets.text("target_schema",     "market_streaming",                  "Target schema")
 dbutils.widgets.text("target_table_name", "silver_market_events",              "Target table")
@@ -90,9 +112,11 @@ print(f"checkpoint_path = {checkpoint_path}")
 print(f"trigger_type    = {trigger_type}")
 
 # COMMAND ----------
+
 # MAGIC %md ## DDL (idempotent)
 
 # COMMAND ----------
+
 from market_streaming.silver.transforms import silver_ddl
 
 spark.sql(f"CREATE CATALOG IF NOT EXISTS {target_catalog}")
@@ -101,9 +125,11 @@ spark.sql(silver_ddl(target_table))
 display(spark.sql(f"DESCRIBE TABLE EXTENDED {target_table}"))
 
 # COMMAND ----------
+
 # MAGIC %md ## Start streaming query
 
 # COMMAND ----------
+
 from market_streaming.silver.transforms import build_silver_stream
 
 query = build_silver_stream(
@@ -125,12 +151,14 @@ if trigger_type in ("availableNow", "once"):
     print("batch complete")
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Monitor progress
 # MAGIC
 # MAGIC Run these cells ad-hoc while the stream is running.
 
 # COMMAND ----------
+
 # Row count and dedup coverage
 spark.sql(f"""
 SELECT
@@ -146,6 +174,7 @@ ORDER BY event_date DESC
 """).display()
 
 # COMMAND ----------
+
 # Duplicate check — should always return zero rows
 spark.sql(f"""
 SELECT symbol, window_start, COUNT(*) AS occurrences
@@ -156,6 +185,7 @@ ORDER BY occurrences DESC
 """).display()
 
 # COMMAND ----------
+
 # Sample recent Silver bars
 spark.sql(f"""
 SELECT
@@ -169,4 +199,5 @@ LIMIT 20
 """).display()
 
 # COMMAND ----------
+
 # query.awaitTermination()
