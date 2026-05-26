@@ -48,38 +48,6 @@ def build_connection(
     return snowflake.connector.connect(**params)
 
 
-def _fix_pandas_types(pdf: "pd.DataFrame", spark_schema) -> "pd.DataFrame":
-    """Fix type mismatches between Spark → pandas → Snowflake.
-
-    Spark timestamps arrive in pandas as either timezone-aware datetime64
-    or as int64 nanoseconds depending on the runtime/Arrow config. Both
-    confuse Snowflake's TIMESTAMP_NTZ column. Strip timezone and force to
-    timezone-naive datetime64. Date columns are coerced to python date objects.
-    """
-    import pandas as pd
-    from pyspark.sql.types import DateType, TimestampType
-
-    for field in spark_schema.fields:
-        col = field.name.upper()
-        if col not in pdf.columns:
-            continue
-
-        if isinstance(field.dataType, TimestampType):
-            series = pdf[col]
-            if series.dtype == "int64":
-                # nanoseconds since epoch → datetime
-                pdf[col] = pd.to_datetime(series, unit="ns")
-            elif hasattr(series.dtype, "tz") and series.dtype.tz is not None:
-                # timezone-aware → strip to NTZ
-                pdf[col] = series.dt.tz_convert(None)
-            # else already timezone-naive datetime64 — leave as-is
-
-        elif isinstance(field.dataType, DateType):
-            pdf[col] = pd.to_datetime(pdf[col]).dt.date
-
-    return pdf
-
-
 def sync_table(
     df: "DataFrame",
     conn: "snowflake.connector.SnowflakeConnection",
@@ -93,16 +61,45 @@ def sync_table(
     mode="append"   insert-only, no truncation. Use when the caller has already
                     filtered to only net-new rows.
 
-    Column names are uppercased to match Snowflake's default case folding.
-    The Snowflake table must already exist (auto_create_table=False) so DDL is
-    explicit and version-controlled.
+    Timestamp handling: Spark → pandas timestamp conversion is unreliable
+    across Arrow versions — the column can arrive as int64 nanoseconds,
+    timezone-aware datetime64, or timezone-naive datetime64. To avoid the
+    ambiguity entirely, timestamp and date columns are cast to ISO strings
+    in Spark before toPandas(), then converted to timezone-naive datetime64
+    in pandas. That path is deterministic regardless of Arrow config.
     """
+    import pandas as pd
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import DateType, TimestampType
     from snowflake.connector.pandas_tools import write_pandas
 
-    schema = df.schema
-    pdf = df.toPandas()
+    # Cast temporal columns to string in Spark to sidestep Arrow/pandas
+    # int64 vs datetime64 ambiguity.
+    ts_cols, date_cols = [], []
+    df_casted = df
+    for field in df.schema.fields:
+        if isinstance(field.dataType, TimestampType):
+            df_casted = df_casted.withColumn(
+                field.name,
+                F.date_format(F.col(field.name), "yyyy-MM-dd HH:mm:ss.SSS"),
+            )
+            ts_cols.append(field.name.upper())
+        elif isinstance(field.dataType, DateType):
+            df_casted = df_casted.withColumn(
+                field.name, F.col(field.name).cast("string")
+            )
+            date_cols.append(field.name.upper())
+
+    pdf = df_casted.toPandas()
     pdf.columns = [c.upper() for c in pdf.columns]
-    pdf = _fix_pandas_types(pdf, schema)
+
+    # Convert string columns to proper pandas types for Snowflake write_pandas
+    for col in ts_cols:
+        if col in pdf.columns:
+            pdf[col] = pd.to_datetime(pdf[col])          # → datetime64[ns], tz-naive
+    for col in date_cols:
+        if col in pdf.columns:
+            pdf[col] = pd.to_datetime(pdf[col]).dt.date  # → python date objects
 
     success, nchunks, nrows, _ = write_pandas(
         conn=conn,
