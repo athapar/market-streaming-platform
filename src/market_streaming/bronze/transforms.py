@@ -37,7 +37,7 @@ BRONZE_COLUMNS: tuple[str, ...] = (
 
 def kafka_jaas_config(username: str, password: str) -> str:
     return (
-        'org.apache.kafka.common.security.plain.PlainLoginModule required '
+        'kafkashaded.org.apache.kafka.common.security.plain.PlainLoginModule required '
         f'username="{username}" password="{password}";'
     )
 
