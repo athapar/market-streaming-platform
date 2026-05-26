@@ -1,18 +1,20 @@
 """
 Snowflake sync utilities — write Spark DataFrames into Snowflake tables.
 
-Uses snowflake-connector-python + write_pandas rather than the Spark-Snowflake
-Maven connector because:
-  - Databricks Serverless cannot attach Maven jars at the cluster level.
-  - Data volume is trivial: 5 symbols × O(days) × O(390 bars/day).
+Why not write_pandas / Spark-Snowflake connector:
+  - write_pandas stages data as Parquet via Arrow. Arrow serialises all
+    timestamps as int64 (microseconds or nanoseconds since epoch). Snowflake
+    reads that raw int64 as NUMBER(38,0) and rejects it when the target column
+    is TIMESTAMP_NTZ — regardless of how the pandas dtype is set beforehand.
+    Two patch attempts confirmed this is a version-sensitive Arrow/connector
+    compatibility issue, not a simple dtype coercion.
+  - Spark-Snowflake Maven connector cannot be attached on Databricks Serverless.
 
-At larger scale swap write_pandas for the Spark connector:
-  spark.write.format("net.snowflake.spark.snowflake") ...
-but the interface below stays the same — just replace sync_table's body.
-
-Snowflake naming convention: tables and columns are created UPPERCASE by
-default. write_pandas normalises column names to uppercase automatically when
-auto_create_table=False; the Snowflake DDL uses matching uppercase names.
+Solution: collect() the Spark DataFrame to Python Row objects, convert each
+field to the native Python type Snowflake connector expects (datetime.datetime
+for TIMESTAMP_NTZ, datetime.date for DATE), and insert via cursor.executemany().
+For 5 symbols × O(400 bars/day) this is fast enough (<5 s). The interface is
+identical so swapping to write_pandas or the Spark connector later is one line.
 """
 from __future__ import annotations
 
@@ -48,6 +50,42 @@ def build_connection(
     return snowflake.connector.connect(**params)
 
 
+def _coerce(val, dtype):
+    """Convert a single Spark Row value to a type Snowflake connector accepts.
+
+    Spark Row.collect() returns:
+      TimestampType → datetime.datetime (may be UTC-aware in Spark Connect)
+      DateType      → datetime.date
+      All others    → native Python scalar
+
+    Snowflake TIMESTAMP_NTZ requires a timezone-naive datetime.datetime.
+    Passing a tz-aware datetime causes a silent wrong-value insert; passing
+    an int causes the NUMBER(38,0) rejection we've been seeing.
+    """
+    import datetime
+    from pyspark.sql.types import DateType, TimestampType
+
+    if val is None:
+        return None
+
+    if isinstance(dtype, TimestampType):
+        if isinstance(val, datetime.datetime):
+            # Strip timezone info — Snowflake TIMESTAMP_NTZ is always naive
+            return val.replace(tzinfo=None)
+        if isinstance(val, (int, float)):
+            # Fallback: epoch microseconds (Spark Connect sometimes returns these)
+            return datetime.datetime(1970, 1, 1) + datetime.timedelta(microseconds=int(val))
+        # Last resort: string parse
+        return datetime.datetime.fromisoformat(str(val))
+
+    if isinstance(dtype, DateType):
+        if isinstance(val, datetime.date):
+            return val
+        return datetime.date.fromisoformat(str(val))
+
+    return val
+
+
 def sync_table(
     df: "DataFrame",
     conn: "snowflake.connector.SnowflakeConnection",
@@ -56,61 +94,44 @@ def sync_table(
 ) -> int:
     """Write a Spark DataFrame to a Snowflake table and return row count written.
 
-    mode="replace"  truncate-then-insert (default). Always produces a correct
-                    snapshot. Safe to re-run; idempotent.
-    mode="append"   insert-only, no truncation. Use when the caller has already
-                    filtered to only net-new rows.
+    mode="replace"  TRUNCATE then INSERT (default). Idempotent, always correct.
+    mode="append"   INSERT only.
 
-    Timestamp handling: Spark → pandas timestamp conversion is unreliable
-    across Arrow versions — the column can arrive as int64 nanoseconds,
-    timezone-aware datetime64, or timezone-naive datetime64. To avoid the
-    ambiguity entirely, timestamp and date columns are cast to ISO strings
-    in Spark before toPandas(), then converted to timezone-naive datetime64
-    in pandas. That path is deterministic regardless of Arrow config.
+    Uses cursor.executemany() with native Python types — bypasses Arrow/Parquet
+    staging so there is no timestamp-as-int64 ambiguity.
     """
-    import pandas as pd
-    from pyspark.sql import functions as F
-    from pyspark.sql.types import DateType, TimestampType
-    from snowflake.connector.pandas_tools import write_pandas
+    schema = df.schema
+    col_names = [f.name.upper() for f in schema.fields]
+    dtypes    = [f.dataType for f in schema.fields]
 
-    # Cast temporal columns to string in Spark to sidestep Arrow/pandas
-    # int64 vs datetime64 ambiguity.
-    ts_cols, date_cols = [], []
-    df_casted = df
-    for field in df.schema.fields:
-        if isinstance(field.dataType, TimestampType):
-            df_casted = df_casted.withColumn(
-                field.name,
-                F.date_format(F.col(field.name), "yyyy-MM-dd HH:mm:ss.SSS"),
-            )
-            ts_cols.append(field.name.upper())
-        elif isinstance(field.dataType, DateType):
-            df_casted = df_casted.withColumn(
-                field.name, F.col(field.name).cast("string")
-            )
-            date_cols.append(field.name.upper())
+    if mode == "replace":
+        cur = conn.cursor()
+        try:
+            cur.execute(f"TRUNCATE TABLE IF EXISTS {sf_table.upper()}")
+        finally:
+            cur.close()
 
-    pdf = df_casted.toPandas()
-    pdf.columns = [c.upper() for c in pdf.columns]
+    rows = df.collect()
+    if not rows:
+        return 0
 
-    # Convert string columns to proper pandas types for Snowflake write_pandas
-    for col in ts_cols:
-        if col in pdf.columns:
-            pdf[col] = pd.to_datetime(pdf[col])          # → datetime64[ns], tz-naive
-    for col in date_cols:
-        if col in pdf.columns:
-            pdf[col] = pd.to_datetime(pdf[col]).dt.date  # → python date objects
+    data = [
+        tuple(_coerce(row[i], dtypes[i]) for i in range(len(schema.fields)))
+        for row in rows
+    ]
 
-    success, nchunks, nrows, _ = write_pandas(
-        conn=conn,
-        df=pdf,
-        table_name=sf_table.upper(),
-        overwrite=(mode == "replace"),
-        auto_create_table=False,
+    placeholders = ", ".join(["%s"] * len(col_names))
+    cols_clause  = ", ".join(col_names)
+    insert_sql   = (
+        f"INSERT INTO {sf_table.upper()} ({cols_clause}) VALUES ({placeholders})"
     )
-    if not success:
-        raise RuntimeError(f"write_pandas reported failure for table {sf_table}")
-    return nrows
+
+    cur = conn.cursor()
+    try:
+        cur.executemany(insert_sql, data)
+        return len(data)
+    finally:
+        cur.close()
 
 
 def execute_sql(conn: "snowflake.connector.SnowflakeConnection", sql: str) -> list:
@@ -133,8 +154,8 @@ CREATE DATABASE IF NOT EXISTS MARKET_STREAMING;
 CREATE SCHEMA IF NOT EXISTS MARKET_STREAMING.GOLD;
 
 CREATE TABLE IF NOT EXISTS MARKET_STREAMING.GOLD.GOLD_MINUTE_BARS (
-  COMPOSITE_FIGI   VARCHAR     NOT NULL,
-  SYMBOL           VARCHAR     NOT NULL,
+  COMPOSITE_FIGI   VARCHAR       NOT NULL,
+  SYMBOL           VARCHAR       NOT NULL,
   EVENT_TYPE       VARCHAR,
   WINDOW_START     TIMESTAMP_NTZ NOT NULL,
   WINDOW_END       TIMESTAMP_NTZ,
@@ -151,37 +172,37 @@ CREATE TABLE IF NOT EXISTS MARKET_STREAMING.GOLD.GOLD_MINUTE_BARS (
 );
 
 CREATE TABLE IF NOT EXISTS MARKET_STREAMING.GOLD.GOLD_DAILY_ROLLUP (
-  COMPOSITE_FIGI   VARCHAR NOT NULL,
-  SYMBOL           VARCHAR NOT NULL,
-  EVENT_DATE       DATE    NOT NULL,
-  OPEN_PRICE       FLOAT,
-  HIGH_PRICE       FLOAT,
-  LOW_PRICE        FLOAT,
-  CLOSE_PRICE      FLOAT,
-  VOLUME           NUMBER,
-  VWAP             FLOAT,
-  TOTAL_TRADES     NUMBER,
-  BAR_COUNT        NUMBER,
-  FIRST_BAR_START  TIMESTAMP_NTZ,
-  LAST_BAR_START   TIMESTAMP_NTZ,
-  UPDATED_AT       TIMESTAMP_NTZ,
+  COMPOSITE_FIGI  VARCHAR       NOT NULL,
+  SYMBOL          VARCHAR       NOT NULL,
+  EVENT_DATE      DATE          NOT NULL,
+  OPEN_PRICE      FLOAT,
+  HIGH_PRICE      FLOAT,
+  LOW_PRICE       FLOAT,
+  CLOSE_PRICE     FLOAT,
+  VOLUME          NUMBER,
+  VWAP            FLOAT,
+  TOTAL_TRADES    NUMBER,
+  BAR_COUNT       NUMBER,
+  FIRST_BAR_START TIMESTAMP_NTZ,
+  LAST_BAR_START  TIMESTAMP_NTZ,
+  UPDATED_AT      TIMESTAMP_NTZ,
   PRIMARY KEY (COMPOSITE_FIGI, EVENT_DATE)
 );
 
 CREATE SCHEMA IF NOT EXISTS MARKET_STREAMING.RECON;
 
 CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.BATCH_DAILY_PRICES (
-  COMPOSITE_FIGI   VARCHAR NOT NULL,
-  SYMBOL           VARCHAR NOT NULL,
-  PRICE_DATE       DATE    NOT NULL,
-  OPEN_PRICE       FLOAT,
-  HIGH_PRICE       FLOAT,
-  LOW_PRICE        FLOAT,
-  CLOSE_PRICE      FLOAT,
-  VOLUME           NUMBER,
-  VWAP             FLOAT,
-  SOURCE           VARCHAR DEFAULT 'batch_bigquery',
-  LOADED_AT        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+  COMPOSITE_FIGI  VARCHAR       NOT NULL,
+  SYMBOL          VARCHAR       NOT NULL,
+  PRICE_DATE      DATE          NOT NULL,
+  OPEN_PRICE      FLOAT,
+  HIGH_PRICE      FLOAT,
+  LOW_PRICE       FLOAT,
+  CLOSE_PRICE     FLOAT,
+  VOLUME          NUMBER,
+  VWAP            FLOAT,
+  SOURCE          VARCHAR       DEFAULT 'batch_bigquery',
+  LOADED_AT       TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
   PRIMARY KEY (COMPOSITE_FIGI, PRICE_DATE)
 );
 """
