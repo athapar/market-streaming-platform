@@ -21,8 +21,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pyspark.sql import DataFrame
     import snowflake.connector
+    from pyspark.sql import DataFrame
 
 
 def build_connection(
@@ -63,6 +63,7 @@ def _coerce(val, dtype):
     an int causes the NUMBER(38,0) rejection we've been seeing.
     """
     import datetime
+
     from pyspark.sql.types import DateType, TimestampType
 
     if val is None:

@@ -22,3 +22,13 @@ warehouse:
       schema: DBT_DEV
       threads: 4
       client_session_keep_alive: false
+
+    ci:
+      type: snowflake
+      account: "ci-placeholder"
+      user: "ci"
+      password: "ci"
+      warehouse: "CI_WH"
+      database: MARKET_STREAMING
+      schema: CI
+      threads: 1
