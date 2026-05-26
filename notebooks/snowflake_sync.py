@@ -141,6 +141,53 @@ finally:
     conn.close()
 
 # COMMAND ----------
+# MAGIC %md ## Sync gold_trades → Snowflake
+# MAGIC
+# MAGIC Trades are partitioned by date. For large volumes, sync only today's
+# MAGIC partition rather than the full table to keep executemany() fast.
+
+# COMMAND ----------
+trades_table = f"{dbutils.widgets.get('target_catalog')}.{dbutils.widgets.get('target_schema')}.gold_trades"
+
+conn = build_connection(
+    account=sf_account, user=sf_user, password=sf_password,
+    warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
+    role=sf_role,
+)
+
+try:
+    trades_df = spark.read.format("delta").table(trades_table)
+    # For daily incremental: filter to today's partition
+    # trades_df = trades_df.filter(f"trade_date = current_date()")
+    n = sync_table(trades_df, conn, "GOLD_TRADES", mode="replace")
+    print(f"GOLD_TRADES      : {n:,} rows written")
+except Exception as e:
+    print(f"GOLD_TRADES      : skipped ({e})")
+finally:
+    conn.close()
+
+# COMMAND ----------
+# MAGIC %md ## Sync gold_quote_stats → Snowflake
+
+# COMMAND ----------
+quote_stats_table = f"{dbutils.widgets.get('target_catalog')}.{dbutils.widgets.get('target_schema')}.gold_quote_stats"
+
+conn = build_connection(
+    account=sf_account, user=sf_user, password=sf_password,
+    warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
+    role=sf_role,
+)
+
+try:
+    quote_stats_df = spark.read.format("delta").table(quote_stats_table)
+    n = sync_table(quote_stats_df, conn, "GOLD_QUOTE_STATS", mode="replace")
+    print(f"GOLD_QUOTE_STATS : {n:,} rows written")
+except Exception as e:
+    print(f"GOLD_QUOTE_STATS : skipped ({e})")
+finally:
+    conn.close()
+
+# COMMAND ----------
 # MAGIC %md ## Verify row counts match Delta
 
 # COMMAND ----------
@@ -151,13 +198,19 @@ conn = build_connection(
 )
 
 try:
-    delta_minute = spark.read.format("delta").table(minute_table).count()
-    delta_daily  = spark.read.format("delta").table(daily_table).count()
-
-    sf_minute = execute_sql(conn, "SELECT COUNT(*) FROM GOLD_MINUTE_BARS")[0][0]
-    sf_daily  = execute_sql(conn, "SELECT COUNT(*) FROM GOLD_DAILY_ROLLUP")[0][0]
-
-    print(f"gold_minute_bars  — Delta: {delta_minute:,}  Snowflake: {sf_minute:,}  match={delta_minute == sf_minute}")
-    print(f"gold_daily_rollup — Delta: {delta_daily:,}   Snowflake: {sf_daily:,}   match={delta_daily == sf_daily}")
+    tables = [
+        ("gold_minute_bars",  minute_table,      "GOLD_MINUTE_BARS"),
+        ("gold_daily_rollup", daily_table,       "GOLD_DAILY_ROLLUP"),
+        ("gold_trades",       trades_table,      "GOLD_TRADES"),
+        ("gold_quote_stats",  quote_stats_table, "GOLD_QUOTE_STATS"),
+    ]
+    for name, delta_tbl, sf_tbl in tables:
+        try:
+            delta_n = spark.read.format("delta").table(delta_tbl).count()
+            sf_n    = execute_sql(conn, f"SELECT COUNT(*) FROM {sf_tbl}")[0][0]
+            match   = delta_n == sf_n
+            print(f"{name:20s} — Delta: {delta_n:>10,}  Snowflake: {sf_n:>10,}  match={match}")
+        except Exception as e:
+            print(f"{name:20s} — skipped ({e})")
 finally:
     conn.close()

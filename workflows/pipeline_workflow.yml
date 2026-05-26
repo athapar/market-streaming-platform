@@ -1,0 +1,130 @@
+# Databricks Workflow definition for the market streaming pipeline.
+#
+# This defines a multi-task job with a dependency DAG that mirrors the
+# medallion architecture. Databricks runs tasks in parallel where
+# dependencies allow and handles retries and failure notifications.
+#
+# To create this workflow:
+#   Option A (UI): Databricks → Workflows → Create Job → paste this config
+#   Option B (CLI): databricks jobs create --json @pipeline_workflow.json
+#   Option C (DABs): Use Databricks Asset Bundles (see databricks.yml)
+#
+# Schedule: weekdays at 16:05 ET (5 minutes after market close) to catch
+# the full trading session. Run manually during the day for intraday updates.
+#
+# DAG:
+#   bronze
+#     ├── silver_am ──────── gold_am ──┐
+#     ├── silver_trades ── gold_trades ┤
+#     └── silver_quotes ── gold_quotes ┤
+#                                      └── snowflake_sync
+
+name: market-streaming-pipeline
+
+schedule:
+  quartz_cron_expression: "0 5 16 ? * MON-FRI"
+  timezone_id: America/New_York
+  pause_status: PAUSED    # unpause when ready for production
+
+tags:
+  project: market-streaming
+  environment: production
+
+max_concurrent_runs: 1
+
+email_notifications:
+  on_failure:
+    - armaant.08@gmail.com
+
+tasks:
+
+  # ── Layer 1: Bronze ────────────────────────────────────────
+  - task_key: bronze
+    description: "Kafka → Bronze Delta (append-only, all topics)"
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/bronze_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 600
+    max_retries: 2
+    min_retry_interval_millis: 30000
+
+  # ── Layer 2: Silver (parallel, all depend on Bronze) ───────
+  - task_key: silver_am
+    description: "Bronze → Silver AM bars (parse, dedup, FIGI join)"
+    depends_on:
+      - task_key: bronze
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/silver_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 600
+    max_retries: 1
+
+  - task_key: silver_trades
+    description: "Bronze → Silver trades (parse, dedup, FIGI join)"
+    depends_on:
+      - task_key: bronze
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/trades_silver_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 900
+    max_retries: 1
+
+  - task_key: silver_quotes
+    description: "Bronze → Silver quotes (parse, dedup, FIGI join)"
+    depends_on:
+      - task_key: bronze
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/quotes_silver_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 900
+    max_retries: 1
+
+  # ── Layer 3: Gold (each depends on its Silver) ─────────────
+  - task_key: gold_am
+    description: "Silver AM → Gold minute bars + daily rollup"
+    depends_on:
+      - task_key: silver_am
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/gold_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 600
+    max_retries: 1
+
+  - task_key: gold_trades
+    description: "Silver trades → Gold trades (serving table)"
+    depends_on:
+      - task_key: silver_trades
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/trades_gold_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 900
+    max_retries: 1
+
+  - task_key: gold_quotes
+    description: "Silver quotes → Gold quote stats (pre-aggregated)"
+    depends_on:
+      - task_key: silver_quotes
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/quotes_gold_ingest
+      base_parameters:
+        trigger_type: availableNow
+    timeout_seconds: 900
+    max_retries: 1
+
+  # ── Layer 4: Snowflake Sync (depends on all Gold) ──────────
+  - task_key: snowflake_sync
+    description: "Gold Delta → Snowflake (all tables)"
+    depends_on:
+      - task_key: gold_am
+      - task_key: gold_trades
+      - task_key: gold_quotes
+    notebook_task:
+      notebook_path: /Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks/snowflake_sync
+    timeout_seconds: 600
+    max_retries: 1
