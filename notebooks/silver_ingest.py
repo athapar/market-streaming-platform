@@ -102,6 +102,7 @@ target_table     = f"{target_catalog}.{target_schema}.{dbutils.widgets.get('targ
 bronze_table     = dbutils.widgets.get("bronze_table")
 seed_path        = dbutils.widgets.get("seed_path")
 checkpoint_path  = dbutils.widgets.get("checkpoint_path")
+checkpoint_path = "/Volumes/main/market_streaming/checkpoints/silver"
 trigger_type     = dbutils.widgets.get("trigger_type")
 trigger_seconds  = int(dbutils.widgets.get("trigger_seconds"))
 
