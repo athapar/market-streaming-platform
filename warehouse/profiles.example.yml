@@ -1,0 +1,24 @@
+# Copy this file to ~/.dbt/profiles.yml (or set DBT_PROFILES_DIR).
+# All secrets are read from environment variables — never hardcode credentials.
+#
+# Required env vars:
+#   SNOWFLAKE_ACCOUNT    e.g. myorg-ab12345
+#   SNOWFLAKE_USER
+#   SNOWFLAKE_PASSWORD
+#   SNOWFLAKE_WAREHOUSE  e.g. COMPUTE_WH
+#   SNOWFLAKE_ROLE       e.g. SYSADMIN  (optional — defaults to user's default role)
+
+warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', '') }}"
+      database: MARKET_STREAMING
+      schema: DBT_DEV
+      threads: 4
+      client_session_keep_alive: false

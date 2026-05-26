@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: mart_recon__daily_delta
+    description: >
+      Reconciliation mart comparing streaming (Gold) vs batch (BigQuery) daily OHLCV.
+      One row per (composite_figi, price_date). Computed deltas and a recon_status flag
+      allow quick identification of price discrepancies between the two pipelines.
+
+      Expected behaviour on a partial streaming session:
+        The streaming producer runs during market hours. A session captured from
+        e.g. 9:22 AM to 11:38 AM ET will produce a daily VWAP and volume that
+        cover only that window. The batch pipeline always covers the full 9:30–16:00 ET
+        session. For these rows session_coverage = 'partial_session' and recon_status
+        is set to 'PARTIAL_SESSION' rather than a mismatch flag — the delta is computed
+        for informational purposes only.
+    columns:
+      - name: composite_figi
+        description: OpenFIGI composite identifier. Join key with security master SCD2.
+        tests:
+          - not_null
+      - name: symbol
+        description: Ticker symbol (e.g. AAPL).
+        tests:
+          - not_null
+      - name: price_date
+        description: Trading date (ET calendar date).
+        tests:
+          - not_null
+      - name: session_coverage
+        description: Whether streaming captured a full or partial session.
+        tests:
+          - accepted_values:
+              values:
+                - full_session
+                - partial_session
+                - missing_streaming
+                - missing_batch
+      - name: recon_status
+        description: >
+          Result of the reconciliation check.
+          OK                      Both sources agree within tolerance.
+          CLOSE_MISMATCH          |Δclose| > 0.5% (full session only).
+          VWAP_MISMATCH           |Δvwap|  > 1.0% (full session only).
+          CLOSE_AND_VWAP_MISMATCH Both thresholds breached.
+          PARTIAL_SESSION         Session coverage incomplete; deltas expected.
+          MISSING_STREAMING       No streaming data for this date.
+          MISSING_BATCH           Batch pipeline did not produce data.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - OK
+                - CLOSE_MISMATCH
+                - VWAP_MISMATCH
+                - CLOSE_AND_VWAP_MISMATCH
+                - PARTIAL_SESSION
+                - MISSING_STREAMING
+                - MISSING_BATCH
+      - name: close_pct_delta
+        description: (s_close − b_close) / b_close × 100. Null when batch is missing.
+      - name: vwap_pct_delta
+        description: (s_vwap − b_vwap) / b_vwap × 100. Null when batch is missing.
+      - name: volume_pct_delta
+        description: (s_volume − b_volume) / b_volume × 100. Null when batch is missing.
+      - name: bar_count
+        description: Number of 1-minute bars that fed this day's rollup.
+      - name: first_bar_start
+        description: UTC timestamp of the first captured bar (session start proxy).
+      - name: last_bar_start
+        description: UTC timestamp of the last captured bar (session end proxy).
+      - name: recon_run_at
+        description: Timestamp when this dbt run materialised the mart.

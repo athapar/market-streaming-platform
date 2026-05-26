@@ -1,0 +1,81 @@
+version: 2
+
+sources:
+  - name: gold
+    database: MARKET_STREAMING
+    schema: GOLD
+    description: >
+      Streaming Gold layer — produced by the Databricks Gold ingest notebook.
+      GOLD_MINUTE_BARS holds one row per (composite_figi, minute window).
+      GOLD_DAILY_ROLLUP is a full-day OHLCV rollup recomputed from all Silver bars
+      each run; it is the streaming counterpart of the batch daily price mart.
+    tables:
+      - name: GOLD_MINUTE_BARS
+        description: Serving-ready OHLCV per (composite_figi, 1-minute window).
+        columns:
+          - name: COMPOSITE_FIGI
+            description: OpenFIGI composite identifier — join key with security master.
+          - name: SYMBOL
+            description: Ticker symbol (e.g. AAPL).
+          - name: WINDOW_START
+            description: Inclusive start of the 1-minute bar (UTC, TIMESTAMP_NTZ).
+          - name: WINDOW_END
+            description: Exclusive end of the 1-minute bar (UTC, TIMESTAMP_NTZ).
+          - name: EVENT_DATE
+            description: Calendar date of the bar (ET trading date).
+          - name: OPEN_PRICE
+          - name: HIGH_PRICE
+          - name: LOW_PRICE
+          - name: CLOSE_PRICE
+          - name: VOLUME
+          - name: VWAP
+          - name: TRADE_COUNT
+          - name: SILVER_TIMESTAMP
+            description: Timestamp the Silver row was written (pipeline lineage).
+
+      - name: GOLD_DAILY_ROLLUP
+        description: >
+          Full-day OHLCV aggregated from all minute bars for a trading date.
+          Updated on each Gold ingest run; stale until Gold runs after market close.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: SYMBOL
+          - name: EVENT_DATE
+          - name: OPEN_PRICE
+          - name: HIGH_PRICE
+          - name: LOW_PRICE
+          - name: CLOSE_PRICE
+          - name: VOLUME
+          - name: VWAP
+          - name: TOTAL_TRADES
+          - name: BAR_COUNT
+          - name: FIRST_BAR_START
+          - name: LAST_BAR_START
+          - name: UPDATED_AT
+
+  - name: recon
+    database: MARKET_STREAMING
+    schema: RECON
+    description: >
+      Reconciliation bridge — batch pipeline daily prices loaded from BigQuery
+      via scripts/bq_to_snowflake_batch.py. Populated once per trading day
+      after the batch pipeline completes (~7–8 PM ET).
+    tables:
+      - name: BATCH_DAILY_PRICES
+        description: >
+          Daily OHLCV sourced from the batch pipeline's BigQuery mart
+          (fct_daily_ohlcv). One row per (composite_figi, price_date).
+          Covers the full trading session (9:30–16:00 ET) for the named symbols.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: SYMBOL
+          - name: PRICE_DATE
+          - name: OPEN_PRICE
+          - name: HIGH_PRICE
+          - name: LOW_PRICE
+          - name: CLOSE_PRICE
+          - name: VOLUME
+          - name: VWAP
+          - name: SOURCE
+            description: Always 'batch_bigquery'.
+          - name: LOADED_AT
