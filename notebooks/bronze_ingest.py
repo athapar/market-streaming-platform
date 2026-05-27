@@ -88,6 +88,12 @@ print(f"trigger_type      = {trigger_type}")
 
 # COMMAND ----------
 
+spark.sql("CREATE CATALOG IF NOT EXISTS main")
+spark.sql("CREATE SCHEMA  IF NOT EXISTS main.market_streaming")
+spark.sql("CREATE VOLUME  IF NOT EXISTS main.market_streaming.checkpoints")
+
+# COMMAND ----------
+
 from market_streaming.bronze.transforms import bronze_ddl
 
 spark.sql(f"CREATE CATALOG IF NOT EXISTS {target_catalog}")
