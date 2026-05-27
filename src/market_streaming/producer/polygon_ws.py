@@ -25,6 +25,7 @@ from typing import AsyncIterator, Iterable
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketException
 
+from market_streaming.observability.alerts import alert_reconnect
 from market_streaming.producer.metrics import Metrics
 from market_streaming.producer.spillover import write_gap
 from market_streaming.observability.alerts import alert_reconnect

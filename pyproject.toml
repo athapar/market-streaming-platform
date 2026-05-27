@@ -35,6 +35,24 @@ dev = [
     "pytest>=8",
 ]
 
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/market_streaming/bronze/transforms.py" = ["F821"]
+"tests/test_bronze_transforms.py" = ["E402"]
+"tests/test_silver_transforms.py" = ["E402"]
+"tests/test_gold_transforms.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["market_streaming"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

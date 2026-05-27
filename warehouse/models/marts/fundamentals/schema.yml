@@ -1,0 +1,81 @@
+version: 2
+
+models:
+  - name: mart_fundamentals__valuation_live
+    description: >
+      Live-priced valuation: batch TTM fundamentals snapshot re-priced against
+      the latest streaming close. One row per composite_figi. All price-derived
+      ratios (P/E, P/B, P/S, P/FCF, market cap) are rescaled by
+      `price_scale = live_close / batch_close`; margin and balance-sheet ratios
+      pass through unchanged. Use `pricing_status` to distinguish fresh live
+      pricing from stale or missing streaming data.
+    columns:
+      - name: composite_figi
+        description: OpenFIGI composite identifier — join key across both pipelines.
+        tests:
+          - not_null
+          - unique
+      - name: ticker
+        tests:
+          - not_null
+      - name: live_close
+        description: Latest streaming close for this security (Gold daily rollup).
+      - name: batch_close
+        description: Batch close price used by the upstream valuation mart.
+      - name: price_scale
+        description: live_close / batch_close — multiplier applied to all live_* ratios.
+      - name: close_delta_pct
+        description: 100 × (live_close − batch_close) / batch_close. Movement since batch snapshot.
+      - name: pricing_status
+        description: OK / STALE_STREAMING / MISSING_STREAMING.
+        tests:
+          - not_null
+          - accepted_values:
+              values: [OK, STALE_STREAMING, MISSING_STREAMING]
+      - name: live_pe_ratio
+        description: batch_pe_ratio × price_scale.
+      - name: live_market_cap
+        description: batch_market_cap × price_scale.
+
+  - name: mart_fundamentals__factor_scores
+    description: >
+      Cross-sectional value / growth / quality factor scores enriched with
+      sector (SIC) and market-cap context. One row per composite_figi.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+          - unique
+      - name: factor_classification
+        tests:
+          - not_null
+          - accepted_values:
+              values: [VALUE, GROWTH, QUALITY, BLEND]
+      - name: value_score
+        description: 0–1, higher = more value-like (low P/E, P/B, P/S percentile).
+      - name: growth_score
+        description: 0–1, higher = more growth-like (high margin, ROE percentile).
+      - name: quality_score
+        description: 0–1, higher = stronger quality (ROE, low leverage, FCF conversion).
+
+  - name: mart_fundamentals__dividend_yield
+    description: >
+      TTM dividend yield per (composite_figi, ex_dividend_date) enriched with
+      sector and a live yield estimate on the most recent event per security.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+      - name: ex_dividend_date
+        tests:
+          - not_null
+      - name: ttm_dividend_yield
+        description: ttm_dividends_per_share / batch_close_price on the ex-div date.
+      - name: live_yield_estimate
+        description: >
+          ttm_dividends_per_share / live_close — only populated on the latest
+          event per security (is_latest_event = TRUE) when streaming has data.
+      - name: is_latest_event
+        description: True only for the most recent ex-div event per security.
+        tests:
+          - not_null

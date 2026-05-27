@@ -21,8 +21,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pyspark.sql import DataFrame
     import snowflake.connector
+    from pyspark.sql import DataFrame
 
 
 def build_connection(
@@ -63,6 +63,7 @@ def _coerce(val, dtype):
     an int causes the NUMBER(38,0) rejection we've been seeing.
     """
     import datetime
+
     from pyspark.sql.types import DateType, TimestampType
 
     if val is None:
@@ -205,6 +206,82 @@ CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.BATCH_DAILY_PRICES (
   SOURCE          VARCHAR       DEFAULT 'batch_bigquery',
   LOADED_AT       TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
   PRIMARY KEY (COMPOSITE_FIGI, PRICE_DATE)
+);
+
+CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.COMPANY_OVERVIEW (
+  COMPOSITE_FIGI       VARCHAR       NOT NULL,
+  TICKER               VARCHAR       NOT NULL,
+  COMPANY_NAME         VARCHAR,
+  SIC_CODE             VARCHAR,
+  SIC_DESCRIPTION      VARCHAR,
+  MARKET_CAP           FLOAT,
+  SHARES_OUTSTANDING   FLOAT,
+  TOTAL_EMPLOYEES      NUMBER,
+  LIST_DATE            DATE,
+  LOADED_AT            TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+  PRIMARY KEY (COMPOSITE_FIGI)
+);
+
+CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.FUNDAMENTALS_VALUATION (
+  COMPOSITE_FIGI         VARCHAR       NOT NULL,
+  TICKER                 VARCHAR       NOT NULL,
+  CLOSE_PRICE            FLOAT,
+  PRICE_AS_OF            DATE,
+  FINANCIALS_AS_OF       DATE,
+  FILING_DATE            DATE,
+  QUARTERS_INCLUDED      NUMBER,
+  MARKET_CAP             FLOAT,
+  SHARES_OUTSTANDING     FLOAT,
+  PE_RATIO               FLOAT,
+  PB_RATIO               FLOAT,
+  PS_RATIO               FLOAT,
+  EV_EBIT                FLOAT,
+  PRICE_TO_FCF           FLOAT,
+  GROSS_MARGIN           FLOAT,
+  OPERATING_MARGIN       FLOAT,
+  NET_MARGIN             FLOAT,
+  ROE                    FLOAT,
+  ROA                    FLOAT,
+  CURRENT_RATIO          FLOAT,
+  DEBT_TO_EQUITY         FLOAT,
+  TTM_REVENUE            FLOAT,
+  TTM_NET_INCOME         FLOAT,
+  TTM_OPERATING_INCOME   FLOAT,
+  TTM_FREE_CASH_FLOW     FLOAT,
+  BOOK_VALUE             FLOAT,
+  TOTAL_ASSETS           FLOAT,
+  TOTAL_LIABILITIES      FLOAT,
+  LOADED_AT              TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+  PRIMARY KEY (COMPOSITE_FIGI)
+);
+
+CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.FUNDAMENTALS_FACTOR_SCORES (
+  COMPOSITE_FIGI         VARCHAR       NOT NULL,
+  TICKER                 VARCHAR       NOT NULL,
+  VALUE_SCORE            FLOAT,
+  GROWTH_SCORE           FLOAT,
+  QUALITY_SCORE          FLOAT,
+  FACTOR_CLASSIFICATION  VARCHAR,
+  PE_RATIO               FLOAT,
+  PB_RATIO               FLOAT,
+  OPERATING_MARGIN       FLOAT,
+  ROE                    FLOAT,
+  DEBT_TO_EQUITY         FLOAT,
+  FCF_CONVERSION         FLOAT,
+  LOADED_AT              TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+  PRIMARY KEY (COMPOSITE_FIGI)
+);
+
+CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.DIVIDEND_YIELD (
+  COMPOSITE_FIGI            VARCHAR       NOT NULL,
+  TICKER                    VARCHAR       NOT NULL,
+  EX_DIVIDEND_DATE          DATE          NOT NULL,
+  CASH_AMOUNT               FLOAT,
+  TTM_DIVIDENDS_PER_SHARE   FLOAT,
+  CLOSE_PRICE               FLOAT,
+  TTM_DIVIDEND_YIELD        FLOAT,
+  LOADED_AT                 TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+  PRIMARY KEY (COMPOSITE_FIGI, EX_DIVIDEND_DATE)
 );
 
 CREATE TABLE IF NOT EXISTS MARKET_STREAMING.GOLD.GOLD_TRADES (

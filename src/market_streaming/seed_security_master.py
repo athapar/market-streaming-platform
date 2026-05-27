@@ -22,6 +22,7 @@ from market_streaming.config import (
     require_env,
 )
 
+
 def build_query(project: str, dataset: str, symbols: list[str]) -> str:
     symbol_list = ", ".join(f"'{s}'" for s in symbols)
     return f"""

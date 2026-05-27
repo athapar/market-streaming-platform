@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     DateType,
-    DoubleType,
     IntegerType,
     LongType,
     StringType,
@@ -18,7 +17,6 @@ from pyspark.sql.types import (
 
 from market_streaming.silver.transforms import (
     MERGE_KEYS,
-    SILVER_COLUMNS,
     join_security_master,
     parse_silver,
     silver_ddl,

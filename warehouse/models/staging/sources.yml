@@ -144,3 +144,103 @@ sources:
           - name: SOURCE
             description: Always 'batch_bigquery'.
           - name: LOADED_AT
+
+      - name: COMPANY_OVERVIEW
+        description: >
+          Reference data for each security — sector (SIC), market cap, shares
+          outstanding, listing date. Snapshot per composite_figi; bridged from
+          BigQuery via scripts/bq_to_snowflake_fundamentals.py.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: TICKER
+          - name: COMPANY_NAME
+          - name: SIC_CODE
+          - name: SIC_DESCRIPTION
+          - name: MARKET_CAP
+          - name: SHARES_OUTSTANDING
+          - name: TOTAL_EMPLOYEES
+          - name: LIST_DATE
+
+      - name: FUNDAMENTALS_VALUATION
+        description: >
+          Trailing-twelve-month fundamentals + valuation ratios per security,
+          priced as of the last batch daily close. Snapshot — one row per
+          composite_figi. Source: BigQuery mart_fundamentals_valuation
+          (4-quarter TTM with current quarter's balance sheet).
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: TICKER
+          - name: CLOSE_PRICE
+            description: Batch close price used to compute the snapshot ratios.
+          - name: PRICE_AS_OF
+            description: Date of the batch close used in the ratio numerators.
+          - name: FINANCIALS_AS_OF
+            description: Period-end date of the most recent reported quarter.
+          - name: FILING_DATE
+          - name: QUARTERS_INCLUDED
+            description: Should be 4 (the mart filters to full TTM coverage).
+          - name: MARKET_CAP
+          - name: SHARES_OUTSTANDING
+          - name: PE_RATIO
+            description: close / ttm_diluted_eps.
+          - name: PB_RATIO
+            description: market_cap / book_value.
+          - name: PS_RATIO
+            description: market_cap / ttm_revenue.
+          - name: EV_EBIT
+          - name: PRICE_TO_FCF
+          - name: GROSS_MARGIN
+          - name: OPERATING_MARGIN
+          - name: NET_MARGIN
+          - name: ROE
+          - name: ROA
+          - name: CURRENT_RATIO
+          - name: DEBT_TO_EQUITY
+          - name: TTM_REVENUE
+          - name: TTM_NET_INCOME
+          - name: TTM_OPERATING_INCOME
+          - name: TTM_FREE_CASH_FLOW
+          - name: BOOK_VALUE
+          - name: TOTAL_ASSETS
+          - name: TOTAL_LIABILITIES
+
+      - name: FUNDAMENTALS_FACTOR_SCORES
+        description: >
+          Cross-sectional value / growth / quality factor scores (percentile
+          ranks across the tracked universe) with a coarse classification.
+          Snapshot — one row per composite_figi.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: TICKER
+          - name: VALUE_SCORE
+            description: Mean percentile across (P/E, P/B, P/S) — low is value.
+          - name: GROWTH_SCORE
+            description: Mean percentile across (operating_margin, ROE).
+          - name: QUALITY_SCORE
+            description: Mean percentile across (ROE, leverage, FCF conversion).
+          - name: FACTOR_CLASSIFICATION
+            description: VALUE / GROWTH / QUALITY / BLEND based on dominant factor.
+          - name: PE_RATIO
+          - name: PB_RATIO
+          - name: OPERATING_MARGIN
+          - name: ROE
+          - name: DEBT_TO_EQUITY
+          - name: FCF_CONVERSION
+
+      - name: DIVIDEND_YIELD
+        description: >
+          Trailing-twelve-month dividend yield per (composite_figi, ex_dividend_date).
+          Time series of every ex-div event with TTM cash per share, batch close
+          on the ex-div date, and computed yield.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: TICKER
+          - name: EX_DIVIDEND_DATE
+          - name: CASH_AMOUNT
+            description: Dividend paid on this event (per share).
+          - name: TTM_DIVIDENDS_PER_SHARE
+            description: Sum of cash dividends in the trailing 365 days.
+          - name: CLOSE_PRICE
+            description: Batch close on the ex-dividend date.
+          - name: TTM_DIVIDEND_YIELD
+            description: ttm_dividends_per_share / close_price (decimal, e.g. 0.025 = 2.5%).
