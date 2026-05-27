@@ -1,4 +1,11 @@
-# Copy this file to ~/.dbt/profiles.yml (or set DBT_PROFILES_DIR).
+# Copy this file to ~/.dbt/profiles.yml (or set DBT_PROFILES_DIR), or merge
+# its contents into your existing profiles.yml alongside other projects.
+#
+# The profile name `streaming_warehouse` is intentionally distinct from the
+# companion batch repo's `warehouse` profile (which targets BigQuery). Keep
+# both side-by-side in your local profiles.yml so each project resolves to
+# the right warehouse.
+#
 # All secrets are read from environment variables — never hardcode credentials.
 #
 # Required env vars:
@@ -8,7 +15,7 @@
 #   SNOWFLAKE_WAREHOUSE  e.g. COMPUTE_WH
 #   SNOWFLAKE_ROLE       e.g. SYSADMIN  (optional — defaults to user's default role)
 
-warehouse:
+streaming_warehouse:
   target: dev
   outputs:
     dev:

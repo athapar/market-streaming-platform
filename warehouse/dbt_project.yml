@@ -1,7 +1,10 @@
 name: 'warehouse'
 version: '1.0.0'
 
-profile: 'warehouse'
+# Profile name is intentionally distinct from the batch repo's `warehouse`
+# profile (which targets BigQuery). Same project layout on disk, different
+# warehouse — they must not collide in ~/.dbt/profiles.yml.
+profile: 'streaming_warehouse'
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]

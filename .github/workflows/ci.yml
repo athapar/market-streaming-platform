@@ -53,4 +53,4 @@ jobs:
         working-directory: warehouse
         run: |
           cp profiles.example.yml profiles.yml
-          dbt parse --profiles-dir . --profile warehouse --target ci
+          dbt parse --profiles-dir . --profile streaming_warehouse --target ci
