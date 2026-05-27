@@ -172,18 +172,21 @@ def write_gold_quotes_batch(
             .distinct()
         )
 
-        # Re-read full Silver for those windows and recompute stats
-        silver_snapshot = (
+        # Re-read full Silver and derive window_start BEFORE the join
+        # (silver_quotes carries sip_timestamp, not window_start — we have
+        # to truncate to the minute first, then USING-join on the derived
+        # column against affected_windows).
+        silver_with_window = (
             spark.read.format("delta").table(silver_table)
-            .join(F.broadcast(affected_windows), ["quote_date", "window_start"])
+            .withColumn("window_start",
+                F.date_trunc("minute", F.col("sip_timestamp")))
         )
 
-        # Need window_start on silver for the join — add it
-        silver_with_window = silver_snapshot.withColumn(
-            "window_start", F.date_trunc("minute", F.col("sip_timestamp"))
+        silver_snapshot = silver_with_window.join(
+            F.broadcast(affected_windows), ["quote_date", "window_start"]
         )
 
-        stats = aggregate_quote_stats(silver_with_window)
+        stats = aggregate_quote_stats(silver_snapshot)
         rows_out = stats.count()
 
         _merge(spark, stats, target_table, MERGE_KEYS)
