@@ -1,11 +1,17 @@
 """
-Snapshot the batch pipeline's current-valid SCD2 security master rows to a local
+Snapshot the batch pipeline's current-valid security master rows to a local
 Parquet seed. Streaming Silver joins on `symbol` against this seed to attach
 `composite_figi`, the identity used by every downstream layer and by recon.
 
 Run daily before market open. Idempotent — overwrites the seed in place.
 
-For real-time events, event_time ~= now, so only currently-valid SCD2 rows are
+Reads from `int_security_master_historical` rather than `int_security_master_scd2`
+because the historical model includes a manual-FIGI CSV seed for tickers that
+Polygon's reference endpoint doesn't return a composite_figi for (ACN, BK, LIN,
+MDT and similar). The SCD2 model still filters those out at source, so it gives
+~96% coverage; the historical model gives full 104/104.
+
+For real-time events, event_time ≈ now, so only currently-valid rows are
 needed. Historical replay against this seed would mis-key trades around ticker
 renames; that case is out of scope for v1.
 """
@@ -35,7 +41,7 @@ def build_query(project: str, dataset: str, symbols: list[str]) -> str:
             active,
             dbt_valid_from,
             dbt_valid_to
-        FROM `{project}.{dataset}.int_security_master_scd2`
+        FROM `{project}.{dataset}.int_security_master_historical`
         WHERE dbt_valid_to IS NULL
           AND active = TRUE
           AND ticker IN ({symbol_list})

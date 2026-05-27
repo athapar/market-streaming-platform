@@ -38,28 +38,30 @@ from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, 
 def build_bq_query(project: str, dataset: str, symbols: list[str], price_date: date) -> str:
     symbol_list = ", ".join(f"'{s}'" for s in symbols)
     date_str    = price_date.isoformat()
-    # Adjust the FROM clause if your batch pipeline uses a different table name.
-    # Common names: fct_daily_ohlcv, fct_stock_prices, mart_daily_prices.
-    mart_table  = optional_env("BQ_MART_TABLE") or "fct_daily_ohlcv"
+    # Default to the batch's split-adjusted daily fact (fact_daily_prices).
+    # Override with BQ_MART_TABLE if the table name differs in your project.
+    mart_table  = optional_env("BQ_MART_TABLE") or "fact_daily_prices"
+    # composite_figi is already a column on fact_daily_prices (the batch dbt
+    # model attaches it via int_security_master_historical), so no SCD2 join
+    # is needed here. The previous SCD2 join silently dropped tickers that
+    # Polygon's reference endpoint returns no composite_figi for (ACN, BK,
+    # LIN, MDT). Reading the column directly preserves the full universe.
     return f"""
         SELECT
-            sm.composite_figi,
-            sm.ticker               AS symbol,
-            p.date                  AS price_date,
-            p.open                  AS open_price,
-            p.high                  AS high_price,
-            p.low                   AS low_price,
-            p.close                 AS close_price,
-            p.volume,
-            p.vwap,
+            composite_figi,
+            ticker                  AS symbol,
+            price_date,
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+            volume,
+            vwap,
             'batch_bigquery'        AS source
-        FROM `{project}.{dataset}.{mart_table}` p
-        JOIN `{project}.{dataset}.int_security_master_scd2` sm
-          ON p.ticker = sm.ticker
-         AND sm.dbt_valid_to IS NULL
-         AND sm.active = TRUE
-        WHERE p.date = '{date_str}'
-          AND p.ticker IN ({symbol_list})
+        FROM `{project}.{dataset}.{mart_table}`
+        WHERE price_date = '{date_str}'
+          AND ticker IN ({symbol_list})
+          AND composite_figi IS NOT NULL
     """
 
 
