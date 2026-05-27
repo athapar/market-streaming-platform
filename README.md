@@ -5,36 +5,30 @@ End-to-end real-time market data lakehouse: **Polygon.io WebSocket → Kafka →
 ## Architecture
 
 ```mermaid
-flowchart TD
-    P[Polygon WebSocket<br/>AM minute aggregates]:::src --> PR[Kafka Producer<br/>NDJSON spillover · gap log · reconnect]:::svc
-    PR --> K[(Confluent Kafka)]:::broker
+flowchart LR
+    P[Polygon WS<br/>AM bars] --> K[Producer → Kafka]
 
-    subgraph DBR[Databricks · Spark Structured Streaming + Delta Lake]
-        direction TB
-        B[Bronze<br/>raw · append-only<br/>Kafka offset audit]:::bronze
-        S[Silver<br/>typed · deduped · FIGI-joined<br/>foreachBatch + MERGE]:::silver
-        G[Gold<br/>minute bars · daily rollup]:::gold
-        B --> S
-        S -->|Change Data Feed| G
+    subgraph D[Databricks Delta]
+        direction LR
+        B[Bronze<br/>raw offsets] --> S[Silver<br/>dedup + FIGI] --> G[Gold<br/>bars + rollups]
     end
 
     K --> B
-    G --> SFG[(Snowflake<br/>MARKET_STREAMING.GOLD)]:::sf
+    G --> SF1[(Snowflake GOLD)]
+    BQ[(BigQuery batch mart)] --> SF2[(Snowflake RECON)]
 
-    BQ[(BigQuery<br/>batch pipeline mart)]:::batch --> SFR[(Snowflake<br/>MARKET_STREAMING.RECON)]:::sf
+    SF1 --> R[dbt daily recon<br/>Δclose · Δvwap · status]
+    SF2 --> R
 
-    SFG --> DBT[dbt · mart_recon__daily_delta<br/>Δclose · Δvwap · recon_status]:::out
-    SFR --> DBT
+    classDef node fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+    classDef delta fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef wh fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    classDef out fill:#fff7ed,stroke:#f97316,color:#7c2d12
 
-    classDef src fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#0d47a1
-    classDef svc fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100
-    classDef broker fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
-    classDef bronze fill:#efebe9,stroke:#5d4037,stroke-width:2px,color:#3e2723
-    classDef silver fill:#eceff1,stroke:#546e7a,stroke-width:2px,color:#263238
-    classDef gold fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#5d4037
-    classDef sf fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
-    classDef batch fill:#f1f8e9,stroke:#689f38,stroke-width:2px,color:#33691e
-    classDef out fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
+    class P,K,BQ node
+    class B,S,G delta
+    class SF1,SF2 wh
+    class R out
 ```
 
 ## Tech Stack
