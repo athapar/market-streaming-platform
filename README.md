@@ -1,172 +1,300 @@
 # Market Streaming Pipeline
 
-End-to-end real-time market data lakehouse: **Polygon.io WebSocket → Kafka → Spark Structured Streaming → Delta Lake medallion → Snowflake**, with dbt reconciliation against a [companion batch pipeline](https://github.com/athapar/financial-data-pipeline-project). Designed for exactly-once delivery, idempotent writes, and a clean audit trail from raw event to analytical table.
+Real-time market data platform ingesting trades, NBBO quotes, and minute aggregates for 104 equities from Polygon.io WebSockets through Kafka and Spark Structured Streaming into a Bronze/Silver/Gold Delta Lake on Databricks, with curated Gold tables synchronized to Snowflake for analytics. A dbt-powered reconciliation and analytics layer compares streaming OHLCV against batch BigQuery ground truth, live-prices TTM fundamental ratios, and surfaces microstructure, risk, and anomaly signals through a multi-page Streamlit dashboard.
 
-**Live dashboard:** _(deployed via Streamlit Community Cloud — see [`dashboard/README.md`](./dashboard/README.md))_
+**[Live Dashboard](./dashboard/README.md)** &mdash; deployed via Streamlit Community Cloud
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    P[Polygon WS<br/>AM bars] --> K[Producer → Kafka]
+    P[Polygon.io WS] --> PR[Producer]
 
-    subgraph D[Databricks Delta]
+    PR --> K[Confluent Kafka]
+    PR --> SP[NDJSON Spillover]
+
+    subgraph DL[Databricks Delta Lake]
         direction LR
-        B[Bronze<br/>raw offsets] --> S[Silver<br/>dedup + FIGI] --> G[Gold<br/>bars + rollups]
+        B[Bronze<br/>raw + offset audit] --> S[Silver<br/>dedup + FIGI join] --> G[Gold<br/>bars + rollups]
     end
 
     K --> B
-    G --> SF1[(Snowflake GOLD)]
-    BQ[(BigQuery batch mart)] --> SF2[(Snowflake RECON)]
+    G --> SF[(Snowflake<br/>GOLD)]
 
-    SF1 --> R[dbt daily recon<br/>Δclose · Δvwap · status]
-    SF2 --> R
+    subgraph Batch[Batch Bridge]
+        BQ[(BigQuery)] --> SFR[(Snowflake<br/>RECON)]
+    end
 
-    classDef node fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+    subgraph dbt[dbt Analytics]
+        direction TB
+        STG[staging] --> INT[intermediate] --> M[marts]
+    end
+
+    SF --> dbt
+    SFR --> dbt
+    M --> DASH[Streamlit<br/>Dashboard]
+
+    PROM[Prometheus] --> GRAF[Grafana]
+    PR -.-> PROM
+
+    classDef source fill:#f8fafc,stroke:#94a3b8,color:#0f172a
     classDef delta fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
     classDef wh fill:#ecfdf5,stroke:#10b981,color:#064e3b
-    classDef out fill:#fff7ed,stroke:#f97316,color:#7c2d12
+    classDef dbtnode fill:#fff7ed,stroke:#f97316,color:#7c2d12
+    classDef obs fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef app fill:#fce7f3,stroke:#ec4899,color:#831843
 
-    class P,K,BQ node
+    class P,PR,K,SP source
     class B,S,G delta
-    class SF1,SF2 wh
-    class R out
+    class SF,SFR,BQ wh
+    class STG,INT,M dbtnode
+    class PROM,GRAF obs
+    class DASH app
 ```
 
-## Tech Stack
+### Data Flow
 
-`Python 3.11` · `Polygon.io WebSocket` · `Confluent Kafka` · `Apache Spark Structured Streaming` · `Databricks` · `Delta Lake (Unity Catalog)` · `Snowflake` · `dbt` · `BigQuery` (fundamentals/dividends/prices bridge)
+| Channel | Symbols | Cadence | Volume |
+|---|---|---|---|
+| AM (minute aggregates) | 104 | Every minute during market hours | ~40K bars/day |
+| T (trades) | 104 | Tick-level | Variable |
+| Q (NBBO quotes) | 20 high-liquidity | Tick-level | ~1000x raw reduction via pre-aggregated stats |
 
-## Engineering Highlights
+### Medallion Layers
 
-| Problem | Solution |
+| Layer | Purpose | Write Pattern |
+|---|---|---|
+| **Bronze** | Raw Kafka payloads, append-only, offset audit trail | Append with checkpoint |
+| **Silver** | Typed, deduplicated, enriched with `composite_figi` identity | MERGE with event-specific dedup keys |
+| **Gold** | Serving-ready bars, daily rollups, trade/quote aggregates | MERGE; daily rollup re-aggregated from full Silver snapshot |
+
+## Engineering Design
+
+### Exactly-Once Delivery
+
+Streaming exactly-once is coordinated across three layers: Spark checkpoints commit Kafka offsets atomically with each Delta write, Silver MERGE operations use event-specific deduplication keys (`symbol, window_start` for aggregates; `trade_id` for trades; `symbol, timestamp, sequence` for quotes), and a `ROW_NUMBER() OVER (PARTITION BY key ORDER BY ingest_timestamp DESC)` dedup pass within each micro-batch eliminates duplicates from producer retries before the MERGE executes.
+
+### Producer Durability
+
+The producer is configured for Kafka idempotent delivery (`acks=all`, `enable.idempotence=true`, LZ4 compression) with automatic failover: when Kafka is unreachable, events spill to date-partitioned NDJSON files with a disconnect/reconnect gap log. A replay script re-publishes undelivered envelopes through the same code path on recovery, maintaining the exactly-once guarantee end-to-end.
+
+### Late-Arriving Data
+
+Gold `foreachBatch` re-aggregates each affected date from the full Silver snapshot using `min_by` / `max_by` over `window_start`. Late-arriving corrections are deterministic &mdash; the daily rollup always reflects the complete Silver state, not an incremental accumulation that can drift.
+
+### Identity Resolution
+
+`composite_figi` from the batch pipeline's SCD2 security master is the join key downstream of Silver. A daily Parquet seed is broadcast-joined during Silver enrichment, ensuring reconciliation and live-priced valuation survive ticker renames (FB &rarr; META) without code changes.
+
+### Snowflake Sync
+
+Gold Delta tables are synced to Snowflake using two strategies: `cursor.executemany()` with native Python `datetime` objects for tables under 50K rows (bypassing an Arrow `int64` micros bug that causes `TIMESTAMP_NTZ` rejection), and a Parquet &rarr; Unity Catalog Volume &rarr; `COPY INTO` path with `MATCH_BY_COLUMN_NAME` for larger tables.
+
+### Streaming vs. Batch Reconciliation
+
+The dbt mart joins streaming Gold daily rollups against batch BigQuery prices on `(composite_figi, date)`, producing close and VWAP deltas with a `recon_status` taxonomy (`OK`, `CLOSE_MISMATCH`, `VWAP_MISMATCH`, `PARTIAL_SESSION`, `MISSING_STREAMING`, `MISSING_BATCH`) that distinguishes genuine data quality issues from structurally expected divergence.
+
+### Live-Priced Valuation
+
+TTM fundamentals (P/E, P/B, P/S, P/FCF, market cap) are computed in the batch pipeline. The streaming dbt layer rescales price-derived ratios by `live_close / batch_close` while passing through profitability and balance-sheet ratios unchanged. A `pricing_status` flag (`OK`, `STALE_STREAMING`, `MISSING_STREAMING`) distinguishes fresh prices from stale ones.
+
+## Dashboard
+
+Eight-page Streamlit application reading from the Snowflake `MARKET_STREAMING` warehouse with 5-minute query caching.
+
+| Page | What it shows |
 |---|---|
-| **Exactly-once across Kafka and Delta** | Spark checkpoints commit Kafka offsets atomically with each Delta write; downstream MERGE absorbs any replay from the last committed offset. |
-| **Within-batch duplicates from producer retries** | `ROW_NUMBER() OVER (PARTITION BY symbol, window_start ORDER BY ingest_timestamp DESC)` dedup *before* the Silver MERGE — no full table scan. |
-| **Snowflake `TIMESTAMP_NTZ` rejected as `NUMBER(38,0)`** | Traced to Arrow staging Parquet as `int64` micros. Replaced `write_pandas` with `cursor.executemany()` on native `datetime` objects — bypassed Arrow entirely. |
-| **Producer durability without a secondary broker** | Date-partitioned NDJSON spillover on Kafka failure + gap log (disconnect/reconnect with reason) + replay script that re-publishes through the same code path. |
-| **Late-arriving bars distorting daily rollup** | Gold `foreachBatch` re-aggregates each affected date from the full Silver snapshot using `min_by` / `max_by` over `window_start` — late corrections are deterministic. |
-| **Identity stability across ticker renames** (FB → META) | `composite_figi` from the batch SCD2 security master is the join key downstream of Silver, broadcast-joined from a daily Parquet seed. |
-| **Streaming vs. batch reconciliation** | dbt mart joins streaming Gold daily rollup against batch BigQuery prices on `(composite_figi, date)`, with a `recon_status` taxonomy that distinguishes genuine deltas from structurally expected ones (`PARTIAL_SESSION`). |
-| **Live-priced valuation without recomputing the whole pipeline** | TTM fundamentals are computed in batch; the streaming dbt layer rescales price-derived ratios (P/E, P/B, P/S, P/FCF, market cap) by `live_close / batch_close`. Profitability and balance-sheet ratios pass through. A `pricing_status` flag distinguishes `OK` / `STALE_STREAMING` / `MISSING_STREAMING`. |
-| **Databricks Serverless trigger limitation** | `trigger(availableNow=True)` across all three streaming layers — processes accumulated changes and exits cleanly; widget-configurable to `processingTime` on Classic clusters. |
+| **Pipeline Health** | Batch metrics, per-layer latency, throughput, error rates |
+| **Market Overview** | Daily stats, VWAP deviation, unusual activity flags |
+| **Risk Analytics** | 20-day rolling beta, alpha, Sharpe ratio vs SPY, correlation heatmaps |
+| **Data Quality** | Recon status distribution, quality scores, anomaly flags |
+| **Microstructure** | Trade flow, bid-ask imbalance, trade intensity |
+| **Fundamentals** | Live-priced P/E, P/B, P/S, dividend yields |
+| **Dividends** | Dividend calendar, ex-dates, live yield estimates |
+| **Reconciliation** | Streaming vs. batch close/VWAP deltas with status breakdown |
 
-## Operating Snapshot
+## Observability
 
-| Metric | Value |
-|---|---|
-| Tracked symbols | 104 — S&P 100 + TSLA + SPY / QQQ / IWM / DIA |
-| Real-time channels | AM (minute aggregates, all 104) · T (trades, all 104) · Q (NBBO quotes, 20 high-liquidity) |
-| Delta Lake layers | Bronze · Silver (AM, trades, quotes) · Gold (minute bars, daily rollup, trades, quote stats) |
-| Snowflake schemas | GOLD · RECON · OPS |
-| dbt models | staging · intermediate · marts (recon · analytics · observability · fundamentals) |
-| Test coverage | 46 unit tests — transforms, dedup, parse, spillover, config |
-| CI | GitHub Actions — pytest matrix (3.11, 3.12) · ruff · dbt parse |
+The producer exposes Prometheus counters, gauges, and histograms on port 9090 (events received, Kafka delivery success/failure, produce latency). A Docker Compose stack runs Prometheus (5s scrape interval) and Grafana with a pre-provisioned producer dashboard. Slack webhook alerts fire on WebSocket reconnects, Kafka delivery failures, quality score drops, and reconciliation mismatches.
 
-*Throughput, latency p50/p95/p99, and reconciliation deltas are populated from the next full-session market-hours run.*
+Pipeline batch-level metrics (rows in/out, duration, status per layer) are written to a Delta table synced to `OPS.PIPELINE_BATCH_METRICS`, surfaced through the dbt observability marts.
 
-## Repository
+## dbt Models
+
+30 models across four layers:
 
 ```
-src/market_streaming/
-├── producer/          polygon_ws · kafka_sink · spillover · envelope · metrics
-├── bronze/transforms  Kafka → raw Delta (append-only, offset audit)
-├── silver/transforms  parse · dedup · FIGI join · MERGE  (AM, trades, quotes)
-├── gold/transforms    minute bars · daily rollup · gold trades · quote stats
-├── sync/snowflake_writer    Gold Delta → Snowflake (executemany)
-└── seed_security_master     BigQuery SCD2 → Parquet FIGI seed
-notebooks/             bronze · silver (am/trades/quotes) · gold (am/trades/quotes)
-                       snowflake_sync · run_pipeline · bronze_validate (Databricks)
-scripts/
-├── bq_to_snowflake_batch          BQ daily prices → RECON.BATCH_DAILY_PRICES
-├── bq_to_snowflake_fundamentals   BQ valuation / factor scores / overview → RECON
-├── bq_to_snowflake_dividends      BQ TTM dividend yield → RECON.DIVIDEND_YIELD
-├── bq_to_snowflake_returns        BQ daily returns + rolling vol → RECON.BATCH_DAILY_RETURNS
-├── check_data_quality             post-pipeline quality gate + Slack alert
-├── create_kafka_topics            one-time Confluent topic provisioning
-└── replay_spillover               re-publish undelivered envelopes from NDJSON
-warehouse/             dbt project — staging · intermediate · marts
-└── models/marts/      recon · analytics · observability · fundamentals
-tests/                 46 unit tests — config · spillover · transforms
+warehouse/models/
+├── staging/               source renaming + type casting
+│   ├── stg_streaming__*   Gold minute bars, daily rollup, trades, quote stats
+│   └── stg_batch__*       daily prices, returns, fundamentals, dividends, company overview
+│
+├── intermediate/          alignment + enrichment
+│   ├── int_recon__daily_aligned           streaming vs batch daily price alignment
+│   ├── int_fundamentals__live_priced      TTM metrics rescaled with live close
+│   ├── int_analytics__minute_returns      intra-minute return calculations
+│   ├── int_analytics__daily_returns       daily return + rolling volatility
+│   └── int_microstructure__trade_flow     trade size + direction analysis
+│
+└── marts/
+    ├── recon/
+    │   ├── mart_recon__daily_delta              close + VWAP deltas with recon_status
+    │   └── mart_recon__returns_delta            streaming vs batch daily return comparison
+    ├── analytics/
+    │   ├── mart_analytics__daily_stats          realized vol, dollar volume, VWAP deviation
+    │   ├── mart_analytics__rolling_risk         beta, alpha, Sharpe vs SPY (20-day)
+    │   ├── mart_analytics__unusual_activity     z-score anomaly flagging
+    │   ├── mart_analytics__correlation_matrix   pairwise return correlations
+    │   ├── mart_analytics__volume_profile       intraday volume by 30-min bucket
+    │   ├── mart_analytics__microstructure_daily trade intensity, avg size, bid-ask imbalance
+    │   ├── mart_analytics__spread_profile       intraday bid-ask U-curve
+    │   └── mart_analytics__trade_size_distribution
+    ├── observability/
+    │   ├── mart_ops__pipeline_health            batch metrics per layer
+    │   └── mart_ops__data_quality               quality scores per symbol-date
+    └── fundamentals/
+        ├── mart_fundamentals__valuation_live    P/E re-priced with live close
+        ├── mart_fundamentals__factor_scores     value/growth/quality enriched with sector
+        └── mart_fundamentals__dividend_yield    live yield estimate with next ex-date
+```
+
+## Snowflake Schema
+
+```
+MARKET_STREAMING
+├── GOLD                                synced from Databricks Delta
+│   ├── GOLD_MINUTE_BARS                PK (composite_figi, window_start)
+│   ├── GOLD_DAILY_ROLLUP               PK (composite_figi, event_date)
+│   ├── GOLD_TRADES                     PK (composite_figi, trade_id)
+│   └── GOLD_QUOTE_STATS               PK (composite_figi, window_start)
+├── RECON                               bridged from BigQuery batch pipeline
+│   ├── BATCH_DAILY_PRICES              split-adjusted OHLCV
+│   ├── BATCH_DAILY_RETURNS             returns + 20/60-day rolling vol
+│   ├── COMPANY_OVERVIEW                sector, market cap
+│   ├── FUNDAMENTALS_VALUATION          TTM P/E, P/B, margins
+│   ├── FUNDAMENTALS_FACTOR_SCORES      value/growth/quality scores
+│   └── DIVIDEND_YIELD                  ex-dates + TTM yield
+└── OPS                                 pipeline observability
+    └── PIPELINE_BATCH_METRICS          rows in/out, duration, status per layer
 ```
 
 ## Quick Start
 
-```bash
-pip install -e ".[producer,recon]"
+### Prerequisites
 
-# 1. Seed the security master (BigQuery → Parquet)
+- Python 3.11+
+- Polygon.io API key (WebSocket access)
+- Confluent Cloud Kafka cluster
+- Databricks workspace with Unity Catalog
+- Snowflake account
+- BigQuery access (for batch bridge + security master seed)
+
+### Install
+
+```bash
+git clone https://github.com/athapar/market-streaming-pipeline.git
+cd market-streaming-pipeline
+
+# Core + producer dependencies
+pip install -e ".[producer]"
+
+# Reconciliation + dbt
+pip install -e ".[recon]"
+
+# Dashboard
+pip install -e ".[dashboard]"
+
+# All extras
+pip install -e ".[producer,recon,dashboard,dev]"
+```
+
+### Configure
+
+```bash
+cp .env.example .env
+# Fill in: POLYGON_API_KEY, KAFKA_*, SNOWFLAKE_*, GOOGLE_CLOUD_PROJECT, BQ_DATASET_ID
+```
+
+### Run
+
+```bash
+# 1. Seed the security master (BigQuery SCD2 → local Parquet)
 python -m market_streaming.seed_security_master
 
-# 2. Run the producer (market hours; --dry-run skips Kafka)
-python -m market_streaming.producer.main
+# 2. Start the producer (market hours)
+python -m market_streaming.producer.main          # live
+python -m market_streaming.producer.main --dry-run # skip Kafka, count events only
 
-# 3. In Databricks, run notebooks in order (or just run_pipeline.py orchestrator):
-#    bronze_ingest → silver_ingest (am / trades / quotes)
-#                  → gold_ingest   (am / trades / quotes)
+# 3. Run streaming layers in Databricks (or use the orchestrator notebook)
+#    bronze_ingest → silver_ingest (AM / trades / quotes)
+#                  → gold_ingest   (AM / trades / quotes)
 #                  → snowflake_sync
 
-# 4. After market close, bridge the batch pipeline
+# 4. Bridge batch data after market close
 python scripts/bq_to_snowflake_batch.py --date YYYY-MM-DD
-python scripts/bq_to_snowflake_returns.py             # daily (returns + rolling vol)
-python scripts/bq_to_snowflake_fundamentals.py        # quarterly + as-needed
-python scripts/bq_to_snowflake_dividends.py           # as-needed (after ex-div events)
+python scripts/bq_to_snowflake_returns.py
+python scripts/bq_to_snowflake_fundamentals.py   # quarterly
+python scripts/bq_to_snowflake_dividends.py      # after ex-div events
 
-# 5. Reconcile + build analytics marts
+# 5. Build dbt models
 cd warehouse && dbt run && dbt test
+
+# 6. Launch dashboard
+streamlit run dashboard/app.py
 ```
 
-Secrets are read from a `.env` (local) and a Databricks secret scope (`market-streaming`). See `profiles.example.yml` and `notebooks/snowflake_sync.py` for the full variable list.
+### Monitoring
 
-## Snowflake Objects
-
-```
-MARKET_STREAMING
-├── GOLD                          synced from Databricks Delta
-│   ├── GOLD_MINUTE_BARS          PK (composite_figi, window_start)
-│   ├── GOLD_DAILY_ROLLUP         PK (composite_figi, event_date)
-│   ├── GOLD_TRADES               PK (composite_figi, trade_id)
-│   └── GOLD_QUOTE_STATS          PK (composite_figi, window_start)
-├── RECON                         bridged from BigQuery batch pipeline
-│   ├── BATCH_DAILY_PRICES        PK (composite_figi, price_date)   -- split-adjusted OHLCV
-│   ├── BATCH_DAILY_RETURNS       PK (composite_figi, price_date)   -- returns + 20/60-day vol
-│   ├── COMPANY_OVERVIEW          PK (composite_figi)               -- sector, market cap
-│   ├── FUNDAMENTALS_VALUATION    PK (composite_figi)               -- TTM P/E, P/B, margins
-│   ├── FUNDAMENTALS_FACTOR_SCORES PK (composite_figi)              -- value/growth/quality
-│   └── DIVIDEND_YIELD            PK (composite_figi, ex_dividend_date)
-└── OPS                           pipeline observability
-    └── PIPELINE_BATCH_METRICS    rows_in/out · duration_ms · status per layer batch
-
-dbt output schemas
-├── staging        stg_streaming__*  ·  stg_batch__*
-├── intermediate   int_recon__daily_aligned  ·  int_fundamentals__live_priced  ·  int_*returns
-└── marts
-    ├── recon            mart_recon__daily_delta            (Δclose · Δvwap · recon_status)
-    │                    mart_recon__returns_delta          (streaming vs batch daily return)
-    ├── analytics        mart_analytics__daily_stats        (realized vol, dollar volume, VWAP dev)
-    │                    mart_analytics__rolling_risk        (β · α · Sharpe vs SPY, 20-day)
-    │                    mart_analytics__volume_profile      (intraday volume by 30-min bucket)
-    │                    mart_analytics__unusual_activity    (z-score flagging)
-    │                    mart_analytics__correlation_matrix  (pairwise return correlations)
-    │                    mart_analytics__microstructure_daily
-    │                    mart_analytics__spread_profile      (intraday U-curve)
-    │                    mart_analytics__trade_size_distribution
-    ├── observability    mart_ops__pipeline_health · mart_ops__data_quality
-    └── fundamentals     mart_fundamentals__valuation_live   (P/E re-priced w/ live close)
-                         mart_fundamentals__factor_scores   (enriched w/ sector)
-                         mart_fundamentals__dividend_yield  (enriched w/ live yield estimate)
+```bash
+cd monitoring
+docker compose up -d   # Prometheus + Grafana on localhost:3000
 ```
 
-## Relation to the Batch Pipeline
+## Tests & CI
 
-This project extends the [batch financial data pipeline](https://github.com/athapar/financial-data-pipeline-project), bridging four classes of batch output into the streaming warehouse:
+46 unit tests covering config loading, envelope routing, spillover persistence, Slack alerting, and all three transform layers (bronze, silver, gold).
 
-| Batch output (BigQuery) | Bridged to Snowflake | Used by |
+```bash
+pytest tests/ -v
+ruff check src/ tests/
+```
+
+CI runs on every push and PR against `main`: pytest across Python 3.11/3.12, ruff linting, and dbt project compilation.
+
+## Repository Structure
+
+```
+src/market_streaming/
+├── producer/              WebSocket client, Kafka sink, NDJSON spillover, metrics
+├── bronze/transforms      Kafka → raw Delta (append-only, offset audit)
+├── silver/transforms      parse, dedup, FIGI join, MERGE (AM, trades, quotes)
+├── gold/transforms        minute bars, daily rollup, trade + quote aggregates
+├── sync/snowflake_writer  Gold Delta → Snowflake (executemany / COPY INTO)
+├── observability/         Slack alerts, batch-level pipeline metrics
+└── seed_security_master   BigQuery SCD2 → local Parquet FIGI seed
+
+notebooks/                 Databricks notebooks (bronze → silver → gold → sync)
+scripts/                   Batch bridge, quality checks, topic provisioning, replay
+warehouse/                 dbt project (30 models: staging → intermediate → marts)
+dashboard/                 Streamlit app (8 pages over Snowflake)
+monitoring/                Prometheus + Grafana Docker Compose stack
+tests/                     46 unit tests
+```
+
+## Tech Stack
+
+`Python 3.11` &middot; `Polygon.io WebSocket` &middot; `Confluent Kafka` &middot; `Apache Spark Structured Streaming` &middot; `Databricks (Unity Catalog)` &middot; `Delta Lake` &middot; `Snowflake` &middot; `dbt` &middot; `BigQuery` &middot; `Streamlit` &middot; `Plotly` &middot; `Prometheus` &middot; `Grafana` &middot; `Docker Compose` &middot; `GitHub Actions`
+
+## Batch Pipeline Integration
+
+This project extends a [companion batch pipeline](https://github.com/athapar/financial-data-pipeline-project), bridging four classes of batch output into the streaming warehouse:
+
+| Batch Output (BigQuery) | Bridged to Snowflake | Used by |
 |---|---|---|
-| `int_security_master_scd2` | local Parquet seed | Silver FIGI broadcast join |
+| `int_security_master_scd2` | Local Parquet seed | Silver FIGI broadcast join |
 | `fct_daily_ohlcv` | `RECON.BATCH_DAILY_PRICES` | `mart_recon__daily_delta` |
-| `mart_fundamentals_valuation` · `mart_fundamentals_factor_scores` · `stg_company_overview` | `RECON.FUNDAMENTALS_*` · `RECON.COMPANY_OVERVIEW` | `mart_fundamentals__valuation_live`, `__factor_scores` |
-| `mart_dividend_yield` | `RECON.DIVIDEND_YIELD` | `mart_fundamentals__dividend_yield` |
+| `mart_fundamentals_valuation` / `factor_scores` / `stg_company_overview` | `RECON.FUNDAMENTALS_*` / `COMPANY_OVERVIEW` | `mart_fundamentals__valuation_live`, `__factor_scores` |
 | `mart_daily_returns` | `RECON.BATCH_DAILY_RETURNS` | `mart_recon__returns_delta` |
+| `mart_dividend_yield` | `RECON.DIVIDEND_YIELD` | `mart_fundamentals__dividend_yield` |
 
-`composite_figi` is the cross-pipeline identity key throughout, so reconciliation and live-priced valuation survive ticker renames (FB → META) without code changes.
+`composite_figi` is the cross-pipeline identity key throughout, so reconciliation and live-priced valuation survive ticker renames without code changes.
