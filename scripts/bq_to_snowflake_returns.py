@@ -1,0 +1,115 @@
+"""
+Bridge the batch pipeline's daily returns mart from BigQuery into Snowflake.
+
+BQ source: mart_daily_returns  (one row per composite_figi, price_date)
+            close-to-close daily return on split-adjusted prices, plus
+            rolling 20-day and 60-day return standard deviation
+SF target: MARKET_STREAMING.RECON.BATCH_DAILY_RETURNS
+
+Full TRUNCATE + INSERT — returns and rolling-window vol are recomputed from the
+full price history each batch run, so a partial reload could leave inconsistent
+window edges. Volume is ~104 symbols × 20 years × 252 sessions ≈ 524K rows,
+small enough to fully replace in seconds.
+
+Usage:
+    python scripts/bq_to_snowflake_returns.py [--dry-run]
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+
+import pandas as pd
+from google.cloud import bigquery
+
+from market_streaming.config import optional_env, require_env
+from market_streaming.sync.snowflake_writer import build_connection, execute_sql
+
+
+SF_TABLE = "BATCH_DAILY_RETURNS"
+
+
+def build_query(project: str, dataset: str) -> str:
+    return f"""
+        SELECT
+            composite_figi,
+            ticker,
+            price_date,
+            close_price,
+            daily_return,
+            volatility_20d,
+            volatility_60d
+        FROM `{project}.{dataset}.mart_daily_returns`
+        WHERE composite_figi IS NOT NULL
+    """
+
+
+def fetch() -> pd.DataFrame:
+    project = require_env("GOOGLE_CLOUD_PROJECT")
+    dataset = require_env("BQ_DATASET_ID")
+    require_env("GOOGLE_APPLICATION_CREDENTIALS")
+
+    client = bigquery.Client(project=project)
+    df = client.query(build_query(project, dataset)).result().to_dataframe()
+    print(f"BQ mart_daily_returns: {len(df):,} rows")
+    return df
+
+
+def load(df: pd.DataFrame) -> int:
+    from snowflake.connector.pandas_tools import write_pandas
+
+    conn = build_connection(
+        account   = require_env("SNOWFLAKE_ACCOUNT"),
+        user      = require_env("SNOWFLAKE_USER"),
+        password  = require_env("SNOWFLAKE_PASSWORD"),
+        warehouse = require_env("SNOWFLAKE_WAREHOUSE"),
+        database  = "MARKET_STREAMING",
+        schema    = "RECON",
+        role      = optional_env("SNOWFLAKE_ROLE"),
+    )
+    try:
+        execute_sql(conn, f"TRUNCATE TABLE IF EXISTS {SF_TABLE}")
+        if df.empty:
+            print(f"Snowflake {SF_TABLE}: 0 rows (BQ returned empty)")
+            return 0
+
+        df = df.copy()
+        df.columns = [c.upper() for c in df.columns]
+        _, _, nrows, _ = write_pandas(
+            conn=conn,
+            df=df,
+            table_name=SF_TABLE,
+            overwrite=False,
+            auto_create_table=False,
+        )
+        print(f"Snowflake {SF_TABLE}: {nrows:,} rows inserted")
+        return nrows
+    finally:
+        conn.close()
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--dry-run", action="store_true", help="skip Snowflake write")
+    args = p.parse_args()
+
+    df = fetch()
+    if df.empty:
+        print("BQ returned no rows — check upstream mart")
+        return 0
+
+    print(df.head(10).to_string(index=False))
+    print(f"\n  ... {len(df):,} total rows · "
+          f"{df['composite_figi'].nunique()} securities · "
+          f"{df['price_date'].min()} → {df['price_date'].max()}")
+
+    if args.dry_run:
+        print("\ndry-run: skipping Snowflake write")
+        return 0
+
+    load(df)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

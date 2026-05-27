@@ -79,6 +79,7 @@ scripts/
 ├── bq_to_snowflake_batch          BQ daily prices → RECON.BATCH_DAILY_PRICES
 ├── bq_to_snowflake_fundamentals   BQ valuation / factor scores / overview → RECON
 ├── bq_to_snowflake_dividends      BQ TTM dividend yield → RECON.DIVIDEND_YIELD
+├── bq_to_snowflake_returns        BQ daily returns + rolling vol → RECON.BATCH_DAILY_RETURNS
 ├── check_data_quality             post-pipeline quality gate + Slack alert
 ├── create_kafka_topics            one-time Confluent topic provisioning
 └── replay_spillover               re-publish undelivered envelopes from NDJSON
@@ -105,6 +106,7 @@ python -m market_streaming.producer.main
 
 # 4. After market close, bridge the batch pipeline
 python scripts/bq_to_snowflake_batch.py --date YYYY-MM-DD
+python scripts/bq_to_snowflake_returns.py             # daily (returns + rolling vol)
 python scripts/bq_to_snowflake_fundamentals.py        # quarterly + as-needed
 python scripts/bq_to_snowflake_dividends.py           # as-needed (after ex-div events)
 
@@ -124,7 +126,8 @@ MARKET_STREAMING
 │   ├── GOLD_TRADES               PK (composite_figi, trade_id)
 │   └── GOLD_QUOTE_STATS          PK (composite_figi, window_start)
 ├── RECON                         bridged from BigQuery batch pipeline
-│   ├── BATCH_DAILY_PRICES        PK (composite_figi, price_date)
+│   ├── BATCH_DAILY_PRICES        PK (composite_figi, price_date)   -- split-adjusted OHLCV
+│   ├── BATCH_DAILY_RETURNS       PK (composite_figi, price_date)   -- returns + 20/60-day vol
 │   ├── COMPANY_OVERVIEW          PK (composite_figi)               -- sector, market cap
 │   ├── FUNDAMENTALS_VALUATION    PK (composite_figi)               -- TTM P/E, P/B, margins
 │   ├── FUNDAMENTALS_FACTOR_SCORES PK (composite_figi)              -- value/growth/quality
@@ -137,6 +140,7 @@ dbt output schemas
 ├── intermediate   int_recon__daily_aligned  ·  int_fundamentals__live_priced  ·  int_*returns
 └── marts
     ├── recon            mart_recon__daily_delta            (Δclose · Δvwap · recon_status)
+    │                    mart_recon__returns_delta          (streaming vs batch daily return)
     ├── analytics        mart_analytics__daily_stats        (realized vol, dollar volume, VWAP dev)
     │                    mart_analytics__rolling_risk        (β · α · Sharpe vs SPY, 20-day)
     │                    mart_analytics__volume_profile      (intraday volume by 30-min bucket)
@@ -161,5 +165,6 @@ This project extends the [batch financial data pipeline](https://github.com/atha
 | `fct_daily_ohlcv` | `RECON.BATCH_DAILY_PRICES` | `mart_recon__daily_delta` |
 | `mart_fundamentals_valuation` · `mart_fundamentals_factor_scores` · `stg_company_overview` | `RECON.FUNDAMENTALS_*` · `RECON.COMPANY_OVERVIEW` | `mart_fundamentals__valuation_live`, `__factor_scores` |
 | `mart_dividend_yield` | `RECON.DIVIDEND_YIELD` | `mart_fundamentals__dividend_yield` |
+| `mart_daily_returns` | `RECON.BATCH_DAILY_RETURNS` | `mart_recon__returns_delta` |
 
 `composite_figi` is the cross-pipeline identity key throughout, so reconciliation and live-priced valuation survive ticker renames (FB → META) without code changes.

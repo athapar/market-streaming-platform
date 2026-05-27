@@ -71,3 +71,40 @@ models:
         description: UTC timestamp of the last captured bar (session end proxy).
       - name: recon_run_at
         description: Timestamp when this dbt run materialised the mart.
+
+  - name: mart_recon__returns_delta
+    description: >
+      Independent reconciliation of streaming-computed vs batch-computed daily
+      close-to-close returns per (composite_figi, price_date). Streaming returns
+      are derived from gold_daily_rollup close prices; batch returns are
+      pre-computed on split-adjusted prices in BigQuery mart_daily_returns.
+
+      The two should agree to within a few basis points on full streaming
+      sessions. Larger deltas typically indicate a partial streaming session
+      (the "close" is mid-day) — cross-reference session_coverage in
+      mart_recon__daily_delta to confirm.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+      - name: price_date
+        tests:
+          - not_null
+      - name: return_delta
+        description: streaming_return − batch_return. Null if either side is missing.
+      - name: return_delta_bps
+        description: Same delta in basis points (× 10000). Easier to scan visually.
+      - name: recon_status
+        description: OK / RETURN_MISMATCH / MISSING_STREAMING / MISSING_BATCH.
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - OK
+                - RETURN_MISMATCH
+                - MISSING_STREAMING
+                - MISSING_BATCH
+      - name: batch_volatility_20d
+        description: Trailing 20-day stdev of returns from batch — passes through for ad-hoc analysis.
+      - name: batch_volatility_60d
+        description: Trailing 60-day stdev of returns from batch.

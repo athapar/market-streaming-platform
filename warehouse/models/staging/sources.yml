@@ -244,3 +244,23 @@ sources:
             description: Batch close on the ex-dividend date.
           - name: TTM_DIVIDEND_YIELD
             description: ttm_dividends_per_share / close_price (decimal, e.g. 0.025 = 2.5%).
+
+      - name: BATCH_DAILY_RETURNS
+        description: >
+          Daily close-to-close returns computed on split-adjusted batch prices.
+          One row per (composite_figi, price_date). Includes rolling 20-day and
+          60-day standard deviation of returns. First row per security has a
+          null daily_return by design; volatility_60d is null until 60 sessions
+          of history exist for the security.
+        columns:
+          - name: COMPOSITE_FIGI
+          - name: TICKER
+          - name: PRICE_DATE
+          - name: CLOSE_PRICE
+            description: Split-adjusted close from batch fact_daily_prices.
+          - name: DAILY_RETURN
+            description: close_t / close_{t-1} − 1.
+          - name: VOLATILITY_20D
+            description: stddev(daily_return) over trailing 20 sessions.
+          - name: VOLATILITY_60D
+            description: stddev(daily_return) over trailing 60 sessions.
