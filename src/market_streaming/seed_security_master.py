@@ -30,20 +30,27 @@ from market_streaming.config import (
 
 
 def build_query(project: str, dataset: str, symbols: list[str]) -> str:
+    """Query int_security_master_historical for the currently-valid row per ticker.
+
+    The historical model unions a manual CSV seed (covers tickers Polygon's
+    reference endpoint doesn't return a composite_figi for — e.g. ACN, BK, LIN,
+    MDT) with the dbt snapshot. Its schema is simpler than the SCD2 model:
+    plain `valid_from` / `valid_to` (no dbt_ prefix) and no `active` flag.
+    Current row is the one with NULL valid_to. DISTINCT guards against any
+    overlap between seed and snapshot for the same composite_figi at the same
+    moment in time.
+    """
     symbol_list = ", ".join(f"'{s}'" for s in symbols)
     return f"""
-        SELECT
+        SELECT DISTINCT
             composite_figi,
             ticker AS symbol,
             name,
-            primary_exchange,
-            currency_name,
-            active,
-            dbt_valid_from,
-            dbt_valid_to
+            valid_from,
+            valid_to,
+            source
         FROM `{project}.{dataset}.int_security_master_historical`
-        WHERE dbt_valid_to IS NULL
-          AND active = TRUE
+        WHERE valid_to IS NULL
           AND ticker IN ({symbol_list})
     """
 
@@ -65,7 +72,7 @@ def main() -> int:
     missing = set(symbols) - set(df["symbol"].str.upper())
     if missing:
         print(
-            f"warning: {len(missing)} symbol(s) not present in batch SCD2 current rows: "
+            f"warning: {len(missing)} symbol(s) not present in batch historical security master: "
             f"{sorted(missing)}",
             file=sys.stderr,
         )
