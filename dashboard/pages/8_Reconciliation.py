@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Reconciliation", layout="wide")
 st.title("Streaming vs Batch Reconciliation")
@@ -30,28 +30,28 @@ _STATUS_COLORS = {
 
 @st.cache_data(ttl=300)
 def load_price_recon():
-    return query("""
+    return query(f"""
         SELECT
             symbol, price_date, session_coverage, recon_status,
             s_close, b_close, close_delta_pct,
             s_vwap, b_vwap, vwap_pct_delta,
             s_volume, b_volume, volume_pct_delta,
             bar_count, first_bar_start, last_bar_start
-        FROM MARKET_STREAMING.MARTS.MART_RECON__DAILY_DELTA
+        FROM {fqn('marts', 'mart_recon__daily_delta')}
         ORDER BY price_date DESC, symbol
     """)
 
 
 @st.cache_data(ttl=300)
 def load_returns_recon():
-    return query("""
+    return query(f"""
         SELECT
             symbol, price_date, recon_status,
             streaming_close, streaming_return,
             batch_close, batch_return,
             return_delta, return_delta_bps,
             batch_volatility_20d, batch_volatility_60d
-        FROM MARKET_STREAMING.MARTS.MART_RECON__RETURNS_DELTA
+        FROM {fqn('marts', 'mart_recon__returns_delta')}
         ORDER BY price_date DESC, symbol
     """)
 

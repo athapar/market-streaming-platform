@@ -67,3 +67,34 @@ def query(sql: str, params: dict | None = None) -> pd.DataFrame:
         return pd.DataFrame(rows, columns=cols)
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Schema resolution
+# ---------------------------------------------------------------------------
+#
+# dbt's default generate_schema_name prepends `target.schema` to any custom
+# schema name, so +schema: observability + target.schema: DBT_DEV produces
+# the physical Snowflake schema DBT_DEV_OBSERVABILITY. We keep that
+# convention (it makes per-environment isolation cheap — DBT_DEV_*, DBT_PROD_*
+# etc. coexist in the same Snowflake account) and resolve dashboard-side.
+#
+# Override at deploy time by setting DBT_TARGET (env var) or [snowflake]
+# DBT_TARGET in Streamlit Cloud secrets. Default is DBT_DEV.
+
+DATABASE     = "MARKET_STREAMING"
+_DBT_TARGET  = _secret("DBT_TARGET", required=False) or "DBT_DEV"
+
+
+def fqn(custom_schema: str, table: str) -> str:
+    """Fully-qualified Snowflake table name for a dbt-built mart.
+
+        fqn('observability', 'mart_ops__pipeline_health')
+          -> MARKET_STREAMING.DBT_DEV_OBSERVABILITY.MART_OPS__PIPELINE_HEALTH
+
+    Use this for any table dbt produces. For raw Snowflake-sync targets
+    (GOLD, RECON, OPS — synced from Databricks, not built by dbt) just
+    write the literal `MARKET_STREAMING.<SCHEMA>.<TABLE>` since they do
+    not carry the DBT_TARGET prefix.
+    """
+    return f"{DATABASE}.{_DBT_TARGET}_{custom_schema.upper()}.{table.upper()}"

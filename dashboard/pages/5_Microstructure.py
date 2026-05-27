@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Microstructure", layout="wide")
 st.title("Microstructure Analytics")
@@ -12,36 +12,36 @@ st.title("Microstructure Analytics")
 
 @st.cache_data(ttl=300)
 def load_micro_daily():
-    return query("""
+    return query(f"""
         SELECT symbol, trade_date,
                trade_count, total_dollar_volume, avg_trade_size, median_trade_size,
                buy_volume_pct, trade_imbalance,
                block_trade_count, block_dollar_volume,
                total_quotes, avg_spread_bps, min_spread_bps, max_spread_bps,
                avg_quote_imbalance, quote_to_trade_ratio
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__MICROSTRUCTURE_DAILY
+        FROM {fqn('analytics', 'mart_analytics__microstructure_daily')}
         ORDER BY trade_date DESC, symbol
     """)
 
 
 @st.cache_data(ttl=300)
 def load_spread_profile():
-    return query("""
+    return query(f"""
         SELECT symbol, bucket_id,
                avg_spread_bps, avg_min_spread_bps,
                avg_trades_per_bucket, avg_dollar_volume_per_bucket,
                avg_imbalance, relative_spread, avg_buy_pct
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__SPREAD_PROFILE
+        FROM {fqn('analytics', 'mart_analytics__spread_profile')}
         ORDER BY symbol, bucket_id
     """)
 
 
 @st.cache_data(ttl=300)
 def load_trade_sizes():
-    return query("""
+    return query(f"""
         SELECT symbol, trade_date, size_class,
                trade_count, total_dollar_volume, pct_of_trades, pct_of_dollar_volume
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__TRADE_SIZE_DISTRIBUTION
+        FROM {fqn('analytics', 'mart_analytics__trade_size_distribution')}
         ORDER BY trade_date DESC, symbol, size_class
     """)
 

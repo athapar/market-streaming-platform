@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Data Quality", layout="wide")
 st.title("Data Quality")
@@ -12,19 +12,19 @@ st.title("Data Quality")
 
 @st.cache_data(ttl=300)
 def load_quality():
-    return query("""
-        SELECT * FROM MARKET_STREAMING.OBSERVABILITY.MART_OPS__DATA_QUALITY
+    return query(f"""
+        SELECT * FROM {fqn('observability', 'mart_ops__data_quality')}
         ORDER BY event_date DESC, symbol
     """)
 
 
 @st.cache_data(ttl=300)
 def load_recon():
-    return query("""
+    return query(f"""
         SELECT
             price_date, recon_status,
             COUNT(*) as cnt
-        FROM MARKET_STREAMING.MARTS.MART_RECON__DAILY_DELTA
+        FROM {fqn('marts', 'mart_recon__daily_delta')}
         GROUP BY price_date, recon_status
         ORDER BY price_date
     """)
@@ -32,11 +32,11 @@ def load_recon():
 
 @st.cache_data(ttl=300)
 def load_unusual():
-    return query("""
+    return query(f"""
         SELECT symbol, event_date, activity_classification,
                daily_simple_return, volume_zscore, vol_zscore,
                total_volume, realized_vol_ann_pct
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__UNUSUAL_ACTIVITY
+        FROM {fqn('analytics', 'mart_analytics__unusual_activity')}
         WHERE is_unusual = TRUE
         ORDER BY event_date DESC, volume_zscore DESC
         LIMIT 100

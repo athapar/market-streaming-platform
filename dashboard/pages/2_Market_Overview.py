@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Market Overview", layout="wide")
 st.title("Market Overview")
@@ -11,14 +11,14 @@ st.title("Market Overview")
 
 @st.cache_data(ttl=300)
 def load_daily_stats():
-    return query("""
+    return query(f"""
         SELECT
             symbol, event_date,
             daily_simple_return, close_price,
             total_volume, total_dollar_volume,
             realized_vol_ann_pct, volume_zscore,
             bar_count
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__DAILY_STATS
+        FROM {fqn('analytics', 'mart_analytics__daily_stats')}
         ORDER BY event_date DESC, symbol
     """)
 

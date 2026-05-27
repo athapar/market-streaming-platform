@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Pipeline Health", layout="wide")
 st.title("Pipeline Health")
@@ -12,15 +12,15 @@ st.title("Pipeline Health")
 
 @st.cache_data(ttl=300)
 def load_health():
-    return query("""
-        SELECT * FROM MARKET_STREAMING.OBSERVABILITY.MART_OPS__PIPELINE_HEALTH
+    return query(f"""
+        SELECT * FROM {fqn('observability', 'mart_ops__pipeline_health')}
         ORDER BY event_date
     """)
 
 
 @st.cache_data(ttl=300)
 def load_quality_summary():
-    return query("""
+    return query(f"""
         SELECT
             event_date,
             COUNT(*)                                    AS symbols,
@@ -28,7 +28,7 @@ def load_quality_summary():
             ROUND(AVG(completeness_pct), 1)             AS avg_completeness,
             ROUND(AVG(validity_pct), 1)                 AS avg_validity,
             SUM(total_invalid_bars)                      AS total_invalid_bars
-        FROM MARKET_STREAMING.OBSERVABILITY.MART_OPS__DATA_QUALITY
+        FROM {fqn('observability', 'mart_ops__data_quality')}
         GROUP BY event_date
         ORDER BY event_date
     """)

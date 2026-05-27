@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Risk Analytics", layout="wide")
 st.title("Risk Analytics")
@@ -13,30 +13,30 @@ st.title("Risk Analytics")
 
 @st.cache_data(ttl=300)
 def load_risk():
-    return query("""
+    return query(f"""
         SELECT symbol, price_date, rolling_beta, rolling_correlation,
                rolling_vol_ann_pct, rolling_sharpe, rolling_alpha_ann_pct,
                window_size
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__ROLLING_RISK
+        FROM {fqn('analytics', 'mart_analytics__rolling_risk')}
         ORDER BY symbol, price_date
     """)
 
 
 @st.cache_data(ttl=300)
 def load_correlations():
-    return query("""
+    return query(f"""
         SELECT symbol_a, symbol_b, correlation
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__CORRELATION_MATRIX
+        FROM {fqn('analytics', 'mart_analytics__correlation_matrix')}
     """)
 
 
 @st.cache_data(ttl=300)
 def load_volume_profile():
-    return query("""
+    return query(f"""
         SELECT symbol, bucket_id, bucket_time,
                avg_volume_per_bucket, relative_volume,
                avg_trades_per_bar, return_stddev
-        FROM MARKET_STREAMING.ANALYTICS.MART_ANALYTICS__VOLUME_PROFILE
+        FROM {fqn('analytics', 'mart_analytics__volume_profile')}
         ORDER BY symbol, bucket_id
     """)
 

@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Fundamentals", layout="wide")
 st.title("Fundamentals")
@@ -17,7 +17,7 @@ st.caption(
 
 @st.cache_data(ttl=300)
 def load_valuation():
-    return query("""
+    return query(f"""
         SELECT
             composite_figi, ticker,
             live_close, live_close_date, batch_close, batch_close_date,
@@ -29,20 +29,20 @@ def load_valuation():
             ttm_revenue, ttm_net_income, ttm_free_cash_flow,
             book_value, total_assets, total_liabilities, shares_outstanding,
             financials_as_of, filing_date
-        FROM MARKET_STREAMING.FUNDAMENTALS.MART_FUNDAMENTALS__VALUATION_LIVE
+        FROM {fqn('fundamentals', 'mart_fundamentals__valuation_live')}
         ORDER BY ticker
     """)
 
 
 @st.cache_data(ttl=300)
 def load_factor_scores():
-    return query("""
+    return query(f"""
         SELECT
             composite_figi, ticker, factor_classification,
             value_score, growth_score, quality_score,
             pe_ratio, pb_ratio, operating_margin, roe, debt_to_equity, fcf_conversion,
             sic_code, sic_description, market_cap
-        FROM MARKET_STREAMING.FUNDAMENTALS.MART_FUNDAMENTALS__FACTOR_SCORES
+        FROM {fqn('fundamentals', 'mart_fundamentals__factor_scores')}
         ORDER BY ticker
     """)
 

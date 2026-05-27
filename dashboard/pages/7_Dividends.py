@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from utils.snowflake_conn import query
+from utils.snowflake_conn import fqn, query
 
 st.set_page_config(page_title="Dividends", layout="wide")
 st.title("Dividends & Yield")
@@ -17,14 +17,14 @@ st.caption(
 
 @st.cache_data(ttl=300)
 def load_dividends():
-    return query("""
+    return query(f"""
         SELECT
             composite_figi, ticker, ex_dividend_date,
             cash_amount, ttm_dividends_per_share,
             batch_close_price, ttm_dividend_yield,
             live_yield_estimate, is_latest_event,
             sic_code, sic_description, market_cap
-        FROM MARKET_STREAMING.FUNDAMENTALS.MART_FUNDAMENTALS__DIVIDEND_YIELD
+        FROM {fqn('fundamentals', 'mart_fundamentals__dividend_yield')}
         ORDER BY ticker, ex_dividend_date
     """)
 
