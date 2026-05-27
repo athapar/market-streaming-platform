@@ -34,7 +34,7 @@
 
 import sys
 
-repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline"
+repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-platform"
 src_path  = f"{repo_root}/src"
 
 if src_path not in sys.path:

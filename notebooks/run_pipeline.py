@@ -45,7 +45,7 @@ dbutils.widgets.text("timeout_seconds", "600",
 trigger_type    = dbutils.widgets.get("trigger_type")
 timeout_seconds = int(dbutils.widgets.get("timeout_seconds"))
 
-notebook_base = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline/notebooks"
+notebook_base = "/Workspace/Users/armaant.08@gmail.com/market-streaming-platform/notebooks"
 
 print(f"trigger_type    = {trigger_type}")
 print(f"timeout_seconds = {timeout_seconds}")

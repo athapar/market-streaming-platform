@@ -1,8 +1,13 @@
-# Market Streaming Pipeline
+# Real-Time Market Data Platform
 
-Real-time market data platform ingesting trades, NBBO quotes, and minute aggregates for 104 equities from Polygon.io WebSockets through Kafka and Spark Structured Streaming into a Bronze/Silver/Gold Delta Lake on Databricks, with curated Gold tables synchronized to Snowflake for analytics. A dbt-powered reconciliation and analytics layer compares streaming OHLCV against batch BigQuery ground truth, live-prices TTM fundamental ratios, and surfaces microstructure, risk, and anomaly signals through a multi-page Streamlit dashboard.
+End-to-end market data platform with real-time ingest and micro-batch processing: Polygon.io WebSocket &rarr; Kafka &rarr; Spark Structured Streaming &rarr; Delta Lake medallion (Bronze/Silver/Gold) &rarr; Snowflake, capturing **36.9M events across 104 symbols in a 6.5-hour trading session** with 100% delivery reliability. A dbt reconciliation and analytics layer compares streaming OHLCV against batch BigQuery ground truth, live-prices TTM fundamental ratios, and surfaces microstructure, risk, and anomaly signals through an 8-page Streamlit dashboard.
 
 **[Live Dashboard](./dashboard/README.md)** &mdash; deployed via Streamlit Community Cloud
+
+| | |
+|---|---|
+| **36.9M events ingested** in a single session &mdash; 18.5M trades, 18.3M NBBO quotes, 43.8K minute bars | **100% delivery reliability** &mdash; zero Kafka failures, zero spillover, zero WebSocket reconnects |
+| **100% sync fidelity** &mdash; Delta &harr; Snowflake row counts identical across all Gold tables | **~50&times; bulk-load speedup** &mdash; `PUT + COPY INTO` vs `executemany` on the 7.4M-row trades table |
 
 ## Architecture
 
@@ -52,13 +57,36 @@ flowchart LR
     class DASH app
 ```
 
+### Operating Snapshot
+
+*Measured from a full 6.5-hour regular-hours session (2025-05-27).*
+
+| Metric | Value |
+|---|---|
+| Symbols tracked | 104 (S&P 100 + TSLA + SPY / QQQ / IWM / DIA) |
+| Real-time channels | AM (minute aggs, 104) &middot; T (trades, 104) &middot; Q (NBBO quotes, 20 high-liquidity) |
+| Session captured | 6.5 hours, regular market hours |
+| Total events &rarr; Kafka | 36,860,531 |
+| Total events &rarr; Bronze Delta | 36,861,245 |
+| Kafka &rarr; Bronze drift | 0.002% (session-start checkpoint overlap; deduplicated downstream) |
+| Sustained throughput | ~1,580 events/sec average &middot; ~4,500 events/sec at open |
+| Producer reliability | `kafka_failed=0` &middot; `spillover=0` &middot; `reconnects=0` |
+| Trades captured | 18,523,949 (~178K per symbol) |
+| NBBO quote updates | 18,293,494 (~915K per quoted symbol) |
+| Minute aggregate bars | 43,802 (104 symbols &times; ~390 minutes &asymp; 100% coverage) |
+| Symbol coverage in Silver | 103/104 (one symbol didn't trade) |
+| FIGI match rate | 104/104 after historical security master integration |
+| Snowflake sync match | 100% (Delta &harr; Snowflake row counts identical) |
+| Average quoted spread | 3.13 bps &middot; tightest minute 0.10 bps |
+| dbt models | 30 (staging 9 &middot; intermediate 5 &middot; marts 16) |
+
 ### Data Flow
 
-| Channel | Symbols | Cadence | Volume |
+| Channel | Symbols | Cadence | Session Volume |
 |---|---|---|---|
-| AM (minute aggregates) | 104 | Every minute during market hours | ~40K bars/day |
-| T (trades) | 104 | Tick-level | Variable |
-| Q (NBBO quotes) | 20 high-liquidity | Tick-level | ~1000x raw reduction via pre-aggregated stats |
+| AM (minute aggregates) | 104 | Every minute during market hours | 43,802 bars |
+| T (trades) | 104 | Tick-level | 18.5M events |
+| Q (NBBO quotes) | 20 high-liquidity | Tick-level | 18.3M events &rarr; ~1,000&times; reduction via pre-aggregated stats |
 
 ### Medallion Layers
 
@@ -88,7 +116,7 @@ Gold `foreachBatch` re-aggregates each affected date from the full Silver snapsh
 
 ### Snowflake Sync
 
-Gold Delta tables are synced to Snowflake using two strategies: `cursor.executemany()` with native Python `datetime` objects for tables under 50K rows (bypassing an Arrow `int64` micros bug that causes `TIMESTAMP_NTZ` rejection), and a Parquet &rarr; Unity Catalog Volume &rarr; `COPY INTO` path with `MATCH_BY_COLUMN_NAME` for larger tables.
+Gold Delta tables are synced to Snowflake using auto-routing based on table size. The initial implementation used `cursor.executemany()` with native Python `datetime` objects to work around an Arrow `int64` micros bug that caused Snowflake to reject `TIMESTAMP_NTZ` columns via `write_pandas`. For tables exceeding 50K rows, a `PUT` &rarr; `COPY INTO` bulk-load path with `MATCH_BY_COLUMN_NAME` achieves ~50&times; speedup (the 7.4M-row trades table loads in seconds vs. 12+ minutes via `executemany`).
 
 ### Streaming vs. Batch Reconciliation
 
@@ -97,6 +125,38 @@ The dbt mart joins streaming Gold daily rollups against batch BigQuery prices on
 ### Live-Priced Valuation
 
 TTM fundamentals (P/E, P/B, P/S, P/FCF, market cap) are computed in the batch pipeline. The streaming dbt layer rescales price-derived ratios by `live_close / batch_close` while passing through profitability and balance-sheet ratios unchanged. A `pricing_status` flag (`OK`, `STALE_STREAMING`, `MISSING_STREAMING`) distinguishes fresh prices from stale ones.
+
+## Performance
+
+### Per-Batch Processing Latency
+
+Spark micro-batch durations from `OPS.PIPELINE_BATCH_METRICS`:
+
+| Layer | Batches | p50 | p95 | p99 | Rows |
+|---|---|---|---|---|---|
+| Bronze | &mdash; | &mdash; | &mdash; | &mdash; | 36.9M |
+| Silver | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
+| Gold | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
+
+*Per-batch latency numbers will be populated from the next `PIPELINE_BATCH_METRICS` query.*
+
+### End-to-End Latency
+
+With `trigger(availableNow=True)` on Databricks Serverless, observed end-to-end wall-clock latency (event time &rarr; Silver write) is dominated by trigger cadence, not processing time. The ~99-min p50 observed on 2025-05-27 decomposes as: 60s aggregation window + feed propagation + `availableNow` trigger interval (~5&ndash;10 min) + seconds of actual Spark processing.
+
+On a Classic cluster with `trigger(processingTime="1s")`, the architectural ceiling is ~3&ndash;5s end-to-end. Switching modes is a single Databricks widget parameter &mdash; no code change. The `availableNow` / Serverless choice trades latency for roughly 10&times; cost savings.
+
+## Reconciliation Accuracy
+
+Streaming vs. batch reconciliation is computed nightly after bridging BigQuery daily prices to Snowflake and running `dbt run`.
+
+| Metric | Value |
+|---|---|
+| Recon OK rate | &mdash; |
+| Median \|&Delta;close\| (bps) | &mdash; |
+| Returns mismatch rate | &mdash; |
+
+*Recon metrics will be populated after the first batch bridge + dbt run cycle.*
 
 ## Dashboard
 
@@ -192,8 +252,8 @@ MARKET_STREAMING
 ### Install
 
 ```bash
-git clone https://github.com/athapar/market-streaming-pipeline.git
-cd market-streaming-pipeline
+git clone https://github.com/athapar/market-streaming-platform.git
+cd market-streaming-platform
 
 # Core + producer dependencies
 pip install -e ".[producer]"
@@ -287,7 +347,7 @@ tests/                     46 unit tests
 
 ## Batch Pipeline Integration
 
-This project extends a [companion batch pipeline](https://github.com/athapar/financial-data-pipeline-project), bridging four classes of batch output into the streaming warehouse:
+This platform extends a [companion batch pipeline](https://github.com/athapar/financial-data-pipeline-project), bridging four classes of batch output into the streaming warehouse:
 
 | Batch Output (BigQuery) | Bridged to Snowflake | Used by |
 |---|---|---|

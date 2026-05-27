@@ -34,7 +34,7 @@ streamlit run dashboard/app.py
 1. Push the repo to a public GitHub repository.
 2. Sign in at https://share.streamlit.io and click **New app**.
 3. Configure:
-   - **Repository:** `<you>/market-streaming-pipeline`
+   - **Repository:** `<you>/market-streaming-platform`
    - **Branch:** `main`
    - **Main file path:** `dashboard/app.py`
    - **Python version:** 3.11 or 3.12

@@ -26,7 +26,7 @@
 # COMMAND ----------
 import sys
 
-repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-pipeline"
+repo_root = "/Workspace/Users/armaant.08@gmail.com/market-streaming-platform"
 if f"{repo_root}/src" not in sys.path:
     sys.path.insert(0, f"{repo_root}/src")
 

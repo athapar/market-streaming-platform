@@ -47,7 +47,7 @@ def send_alert(
         "title": f"[{severity.upper()}] {title}",
         "text": message,
         "ts": int(datetime.now(timezone.utc).timestamp()),
-        "footer": "market-streaming-pipeline",
+        "footer": "market-streaming-platform",
     }
 
     if fields:
