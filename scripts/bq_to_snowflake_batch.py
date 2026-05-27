@@ -110,6 +110,8 @@ def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
             conn=conn,
             df=df,
             table_name="BATCH_DAILY_PRICES",
+            database="MARKET_STREAMING",
+            schema="RECON",
             overwrite=False,
             auto_create_table=False,
         )

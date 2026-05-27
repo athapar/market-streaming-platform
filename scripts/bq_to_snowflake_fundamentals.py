@@ -151,6 +151,8 @@ def load(conn, bridge: Bridge, df: pd.DataFrame) -> int:
         conn=conn,
         df=df,
         table_name=bridge.sf_table,
+        database="MARKET_STREAMING",
+        schema="RECON",
         overwrite=False,
         auto_create_table=False,
     )

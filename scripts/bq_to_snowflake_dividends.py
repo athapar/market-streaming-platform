@@ -77,6 +77,8 @@ def load(df: pd.DataFrame) -> int:
             conn=conn,
             df=df,
             table_name=SF_TABLE,
+            database="MARKET_STREAMING",
+            schema="RECON",
             overwrite=False,
             auto_create_table=False,
         )
