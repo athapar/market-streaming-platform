@@ -13,6 +13,10 @@ Design constraints (spec §2.9, §5.5):
   MERGE requires Photon on some runtimes. foreachBatch is portable and makes
   the dedup logic explicit and testable.
 - CDF enabled so Gold can use CHANGES FEED instead of full re-scan.
+- Bronze is multi-topic (market.aggregates + market.trades + market.quotes);
+  this stream filters to market.aggregates BEFORE parsing so the AM schema
+  isn't accidentally applied to T/Q payloads (which would silently produce
+  garbage rows — e.g. trade size `s` interpreted as window_start_ms).
 
 Pure functions (no SparkSession at import time) so they're unit-testable
 without a Databricks cluster. The notebook is a thin wrapper.
@@ -269,7 +273,14 @@ def build_silver_stream(
 
     silver_stream = (
         bronze_stream
+        # Bronze holds all market.* topics; restrict to AM bars before parsing
+        # so the AM schema isn't applied to T/Q payloads.
+        .filter(F.col("kafka_topic") == "market.aggregates")
         .transform(parse_silver)
+        # Defence-in-depth: parse_silver tolerates non-AM events, but with the
+        # topic filter above we should only see AM. Drop any stragglers whose
+        # event_type doesn't match (e.g. status frames mis-routed).
+        .filter(F.col("event_type") == "AM")
         .transform(lambda df: join_security_master(df, seed_df))
         .select(SILVER_COLUMNS)
     )

@@ -6,8 +6,10 @@ natural dedup key is (symbol, trade_id) — trade_id is globally unique per
 executed trade. Duplicates arise from producer retries or Kafka exactly-once
 boundary conditions; the MERGE absorbs them idempotently.
 
-Timestamps: Polygon sends SIP and exchange timestamps as epoch NANOSECONDS
-(not milliseconds like AM bars). Division is by 1e9.
+Timestamps: Polygon's realtime endpoint sends SIP and exchange timestamps as
+epoch NANOSECONDS. The DELAYED endpoint (wss://delayed.polygon.io) sends them
+as epoch MILLISECONDS instead — the docs do not call this out. Parse with
+_epoch_to_timestamp() which auto-detects by magnitude (ns ≳ 10^15, ms ≲ 10^15).
 
 Same architectural pattern as the AM Silver (foreachBatch + MERGE), different
 schema and merge key.
@@ -41,10 +43,25 @@ TRADES_PAYLOAD_SCHEMA = StructType([
     StructField("z",   IntegerType(), True),   # tape (1=A, 2=B, 3=C)
     StructField("p",   DoubleType(),  True),   # price
     StructField("s",   IntegerType(), True),   # size (shares)
-    StructField("t",   LongType(),    True),   # SIP timestamp (epoch ns)
-    StructField("y",   LongType(),    True),   # exchange timestamp (epoch ns)
+    StructField("t",   LongType(),    True),   # SIP timestamp (epoch ns or ms — auto-detected)
+    StructField("y",   LongType(),    True),   # exchange timestamp (epoch ns or ms)
     StructField("q",   LongType(),    True),   # sequence number
 ])
+
+
+def _epoch_to_timestamp(col):
+    """Cast an epoch-integer column to TimestampType, auto-detecting ns vs ms.
+
+    Polygon's realtime feed uses nanoseconds; the delayed feed uses
+    milliseconds for the same fields. A clean magnitude threshold separates
+    them: any sensible recent date is ~1e12 in ms and ~1e18 in ns, so 1e15
+    splits them with 3 orders of magnitude of headroom on either side.
+    """
+    return (
+        F.when(col > F.lit(10**15), col / F.lit(1e9))
+         .otherwise(col / F.lit(1e3))
+         .cast(TimestampType())
+    )
 
 SILVER_TRADES_COLUMNS: list[str] = [
     "composite_figi",
@@ -79,10 +96,8 @@ def parse_trades(df: "DataFrame") -> "DataFrame":
         .withColumn("trade_size",         F.col("_j.s"))
         .withColumn("exchange_id",        F.col("_j.x"))
         .withColumn("tape",              F.col("_j.z"))
-        .withColumn("sip_timestamp",
-            (F.col("_j.t") / 1e9).cast(TimestampType()))
-        .withColumn("exchange_timestamp",
-            (F.col("_j.y") / 1e9).cast(TimestampType()))
+        .withColumn("sip_timestamp",      _epoch_to_timestamp(F.col("_j.t")))
+        .withColumn("exchange_timestamp", _epoch_to_timestamp(F.col("_j.y")))
         .withColumn("sequence_number",    F.col("_j.q"))
         .withColumn("trade_date",         F.to_date(F.col("sip_timestamp")))
         .withColumn("bronze_ingest_timestamp", F.col("ingest_timestamp"))
