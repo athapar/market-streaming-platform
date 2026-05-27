@@ -5,8 +5,10 @@ Polygon Q.* (quote) events are NBBO updates: one event per best-bid/best-offer
 change. The natural dedup key is (symbol, sip_timestamp, sequence_number) —
 the combination is unique per NBBO update for a given symbol.
 
-Timestamps: Polygon sends SIP and exchange timestamps as epoch NANOSECONDS
-(same as trades, not milliseconds like AM bars). Division is by 1e9.
+Timestamps: Polygon's realtime endpoint sends SIP and exchange timestamps as
+epoch NANOSECONDS. The DELAYED endpoint (wss://delayed.polygon.io) sends them
+as epoch MILLISECONDS instead. _epoch_to_timestamp() auto-detects by magnitude
+(ns ≳ 10^15, ms ≲ 10^15).
 
 Quote volume is significantly higher than trades. For 20 liquid symbols,
 expect 10-50M+ quote updates per day. The Gold layer pre-aggregates into
@@ -42,11 +44,25 @@ QUOTES_PAYLOAD_SCHEMA = StructType([
     StructField("ax",  IntegerType(), True),   # ask exchange ID
     StructField("ap",  DoubleType(),  True),   # ask price
     StructField("as",  IntegerType(), True),   # ask size (lots)
-    StructField("t",   LongType(),    True),   # SIP timestamp (epoch ns)
-    StructField("y",   LongType(),    True),   # exchange timestamp (epoch ns)
+    StructField("t",   LongType(),    True),   # SIP timestamp (epoch ns or ms — auto-detected)
+    StructField("y",   LongType(),    True),   # exchange timestamp (epoch ns or ms)
     StructField("q",   LongType(),    True),   # sequence number
     StructField("z",   IntegerType(), True),   # tape (1=A, 2=B, 3=C)
 ])
+
+
+def _epoch_to_timestamp(col):
+    """Cast an epoch-integer column to TimestampType, auto-detecting ns vs ms.
+
+    Polygon's realtime feed uses nanoseconds; the delayed feed uses
+    milliseconds. Magnitude threshold: ms timestamps are ~1e12, ns are ~1e18,
+    so 1e15 is a clean separator with orders of magnitude of headroom.
+    """
+    return (
+        F.when(col > F.lit(10**15), col / F.lit(1e9))
+         .otherwise(col / F.lit(1e3))
+         .cast(TimestampType())
+    )
 
 SILVER_QUOTES_COLUMNS: list[str] = [
     "composite_figi",
@@ -84,10 +100,8 @@ def parse_quotes(df: "DataFrame") -> "DataFrame":
         .withColumn("ask_price",          F.col("_j.ap"))
         .withColumn("ask_size",           F.col("_j.as"))
         .withColumn("ask_exchange_id",    F.col("_j.ax"))
-        .withColumn("sip_timestamp",
-            (F.col("_j.t") / 1e9).cast(TimestampType()))
-        .withColumn("exchange_timestamp",
-            (F.col("_j.y") / 1e9).cast(TimestampType()))
+        .withColumn("sip_timestamp",      _epoch_to_timestamp(F.col("_j.t")))
+        .withColumn("exchange_timestamp", _epoch_to_timestamp(F.col("_j.y")))
         .withColumn("sequence_number",    F.col("_j.q"))
         .withColumn("tape",              F.col("_j.z"))
         .withColumn("quote_date",         F.to_date(F.col("sip_timestamp")))

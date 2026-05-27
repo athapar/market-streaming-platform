@@ -1,15 +1,18 @@
 """
-Bridge the batch pipeline's dividend yield mart from BigQuery into Snowflake.
+Bridge the batch pipeline's daily returns mart from BigQuery into Snowflake.
 
-BQ source: mart_dividend_yield  (one row per composite_figi, ex_dividend_date)
-SF target: MARKET_STREAMING.RECON.DIVIDEND_YIELD
+BQ source: mart_daily_returns  (one row per composite_figi, price_date)
+            close-to-close daily return on split-adjusted prices, plus
+            rolling 20-day and 60-day return standard deviation
+SF target: MARKET_STREAMING.RECON.BATCH_DAILY_RETURNS
 
-Full TRUNCATE + INSERT — the mart recomputes TTM yields from full dividend
-history each batch run, so a partial reload would be inconsistent. Dataset is
-tiny (~8K rows for 104 symbols × 20 years), so the full replace is cheap.
+Full TRUNCATE + INSERT — returns and rolling-window vol are recomputed from the
+full price history each batch run, so a partial reload could leave inconsistent
+window edges. Volume is ~104 symbols × 20 years × 252 sessions ≈ 524K rows,
+small enough to fully replace in seconds.
 
 Usage:
-    python scripts/bq_to_snowflake_dividends.py [--dry-run]
+    python scripts/bq_to_snowflake_returns.py [--dry-run]
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ from market_streaming.config import optional_env, require_env
 from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, execute_sql
 
 
-SF_TABLE = "DIVIDEND_YIELD"
+SF_TABLE = "BATCH_DAILY_RETURNS"
 
 
 def build_query(project: str, dataset: str) -> str:
@@ -31,12 +34,12 @@ def build_query(project: str, dataset: str) -> str:
         SELECT
             composite_figi,
             ticker,
-            ex_dividend_date,
-            cash_amount,
-            ttm_dividends_per_share,
+            price_date,
             close_price,
-            ttm_dividend_yield
-        FROM `{project}.{dataset}.mart_dividend_yield`
+            daily_return,
+            volatility_20d,
+            volatility_60d
+        FROM `{project}.{dataset}.mart_daily_returns`
         WHERE composite_figi IS NOT NULL
     """
 
@@ -48,7 +51,7 @@ def fetch() -> pd.DataFrame:
 
     client = bigquery.Client(project=project)
     df = client.query(build_query(project, dataset)).result().to_dataframe()
-    print(f"BQ mart_dividend_yield: {len(df):,} rows")
+    print(f"BQ mart_daily_returns: {len(df):,} rows")
     return df
 
 
@@ -95,10 +98,13 @@ def main() -> int:
 
     df = fetch()
     if df.empty:
-        print("BQ returned no dividend rows — check upstream mart")
+        print("BQ returned no rows — check upstream mart")
         return 0
 
     print(df.head(10).to_string(index=False))
+    print(f"\n  ... {len(df):,} total rows · "
+          f"{df['composite_figi'].nunique()} securities · "
+          f"{df['price_date'].min()} → {df['price_date'].max()}")
 
     if args.dry_run:
         print("\ndry-run: skipping Snowflake write")

@@ -28,7 +28,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 from market_streaming.config import load_symbols, require_env, optional_env
-from market_streaming.sync.snowflake_writer import build_connection, execute_sql
+from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, execute_sql
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +98,7 @@ def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
     )
 
     try:
+        apply_ddl(conn)
         # Delete the date's rows first so the load is idempotent
         execute_sql(
             conn,
@@ -109,6 +110,8 @@ def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
             conn=conn,
             df=df,
             table_name="BATCH_DAILY_PRICES",
+            database="MARKET_STREAMING",
+            schema="RECON",
             overwrite=False,
             auto_create_table=False,
         )

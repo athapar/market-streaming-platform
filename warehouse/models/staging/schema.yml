@@ -100,3 +100,19 @@ models:
       - name: ex_dividend_date
         tests:
           - not_null
+
+  - name: stg_batch__daily_returns
+    description: >
+      Close-to-close daily returns and rolling 20/60-day return stdev,
+      computed in batch on split-adjusted prices. One row per
+      (composite_figi, price_date).
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+      - name: price_date
+        tests:
+          - not_null
+      - name: ticker
+        tests:
+          - not_null

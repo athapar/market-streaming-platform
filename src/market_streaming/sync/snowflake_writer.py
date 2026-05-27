@@ -136,13 +136,60 @@ def sync_table(
 
 
 def execute_sql(conn: "snowflake.connector.SnowflakeConnection", sql: str) -> list:
-    """Execute a single SQL statement and return all result rows."""
+    """Execute a single SQL statement and return all result rows (empty list for DDL)."""
     cur = conn.cursor()
     try:
         cur.execute(sql)
-        return cur.fetchall()
+        try:
+            return cur.fetchall()
+        except Exception:
+            # DDL statements (CREATE, TRUNCATE, etc.) may not have a result set
+            return []
     finally:
         cur.close()
+
+
+def apply_ddl(
+    conn: "snowflake.connector.SnowflakeConnection",
+    verbose: bool = True,
+) -> None:
+    """Run the full SNOWFLAKE_DDL idempotently (CREATE … IF NOT EXISTS throughout).
+
+    Safe and cheap to call at the start of every bridge / sync script:
+    statements are no-ops once the objects exist. Adding a new table to
+    SNOWFLAKE_DDL means every bridge auto-bootstraps it on next run.
+
+    After applying DDL we explicitly USE the connection's intended database
+    and schema. Snowflake does not always preserve session context across
+    a long sequence of CREATE statements, and write_pandas resolves
+    unqualified table names against the *current* session schema — so we
+    pin it back to the value passed into build_connection().
+    """
+    import sys
+
+    target_db     = getattr(conn, "database", None) or "MARKET_STREAMING"
+    target_schema = getattr(conn, "schema",   None) or "RECON"
+
+    for stmt in SNOWFLAKE_DDL.strip().split(";"):
+        s = stmt.strip()
+        if not s:
+            continue
+        first_line = s.splitlines()[0][:80]
+        try:
+            execute_sql(conn, s)
+            if verbose:
+                print(f"  [DDL]  {first_line}")
+        except Exception as e:
+            print(f"  [DDL FAIL] {first_line}", file=sys.stderr)
+            print(f"  [DDL FAIL] {e}", file=sys.stderr)
+            raise
+
+    # Pin session back to the bridge's target database/schema so unqualified
+    # table references (write_pandas, TRUNCATE …) resolve correctly.
+    execute_sql(conn, f"USE DATABASE {target_db}")
+    execute_sql(conn, f"USE SCHEMA   {target_db}.{target_schema}")
+    if verbose:
+        print(f"  [DDL]  session pinned to {target_db}.{target_schema}")
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +329,18 @@ CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.DIVIDEND_YIELD (
   TTM_DIVIDEND_YIELD        FLOAT,
   LOADED_AT                 TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
   PRIMARY KEY (COMPOSITE_FIGI, EX_DIVIDEND_DATE)
+);
+
+CREATE TABLE IF NOT EXISTS MARKET_STREAMING.RECON.BATCH_DAILY_RETURNS (
+  COMPOSITE_FIGI   VARCHAR       NOT NULL,
+  TICKER           VARCHAR       NOT NULL,
+  PRICE_DATE       DATE          NOT NULL,
+  CLOSE_PRICE      FLOAT,
+  DAILY_RETURN     FLOAT,
+  VOLATILITY_20D   FLOAT,
+  VOLATILITY_60D   FLOAT,
+  LOADED_AT        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+  PRIMARY KEY (COMPOSITE_FIGI, PRICE_DATE)
 );
 
 CREATE TABLE IF NOT EXISTS MARKET_STREAMING.GOLD.GOLD_TRADES (
