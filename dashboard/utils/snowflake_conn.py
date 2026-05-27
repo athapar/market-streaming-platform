@@ -58,13 +58,36 @@ def get_connection() -> snowflake.connector.SnowflakeConnection:
 
 
 def query(sql: str, params: dict | None = None) -> pd.DataFrame:
+    """Run a SQL query and return a DataFrame with sensible dtypes.
+
+    Snowflake's NUMBER / DECIMAL types come back as Python Decimal objects
+    via cursor.fetchall(), which pandas stores as `object` dtype. That
+    breaks numeric pandas operations (`.nsmallest`, `.nlargest`, `.mean`
+    over the column, comparisons, plotting colour scales). Auto-coerce
+    object columns to numeric when possible — leaves real string columns
+    untouched.
+    """
     conn = get_connection()
     try:
         cur = conn.cursor()
         cur.execute(sql, params or {})
         cols = [desc[0].lower() for desc in cur.description]
         rows = cur.fetchall()
-        return pd.DataFrame(rows, columns=cols)
+        df = pd.DataFrame(rows, columns=cols)
+
+        # Coerce Decimal -> float on object columns where every non-null
+        # value is numeric. `errors='coerce'` returns NaN for non-numeric
+        # entries, so we only swap the column back in if no real strings
+        # got nulled (i.e. the converted series is numeric for all rows
+        # that were originally non-null).
+        for col in df.select_dtypes(include="object").columns:
+            converted = pd.to_numeric(df[col], errors="coerce")
+            original_non_null = df[col].notna()
+            converted_non_null = converted.notna()
+            if original_non_null.equals(converted_non_null):
+                df[col] = converted
+
+        return df
     finally:
         conn.close()
 

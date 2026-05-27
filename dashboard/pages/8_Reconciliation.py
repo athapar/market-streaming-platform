@@ -33,7 +33,7 @@ def load_price_recon():
     return query(f"""
         SELECT
             symbol, price_date, session_coverage, recon_status,
-            s_close, b_close, close_delta_pct,
+            s_close, b_close, close_pct_delta,
             s_vwap, b_vwap, vwap_pct_delta,
             s_volume, b_volume, volume_pct_delta,
             bar_count, first_bar_start, last_bar_start
@@ -131,10 +131,10 @@ st.divider()
 # --- Close-price delta distribution ---
 st.subheader("Close-Price Δ Distribution (Latest Date)")
 if not day_p.empty:
-    full = day_p.dropna(subset=["close_delta_pct"])
+    full = day_p.dropna(subset=["close_pct_delta"])
     if not full.empty:
         fig_hist = px.histogram(
-            full, x="close_delta_pct", nbins=40,
+            full, x="close_pct_delta", nbins=40,
             color="session_coverage",
             color_discrete_map={
                 "full_session":      "#636EFA",
@@ -200,7 +200,7 @@ with col_pl:
     else:
         show_p = mismatch_p[[
             "price_date", "symbol", "recon_status",
-            "s_close", "b_close", "close_delta_pct",
+            "s_close", "b_close", "close_pct_delta",
             "vwap_pct_delta", "volume_pct_delta",
         ]].head(50)
         st.dataframe(show_p, use_container_width=True, hide_index=True)
