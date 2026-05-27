@@ -28,7 +28,6 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketExce
 from market_streaming.observability.alerts import alert_reconnect
 from market_streaming.producer.metrics import Metrics
 from market_streaming.producer.spillover import write_gap
-from market_streaming.observability.alerts import alert_reconnect
 
 log = logging.getLogger(__name__)
 

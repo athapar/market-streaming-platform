@@ -24,7 +24,6 @@ from confluent_kafka import KafkaError, Producer
 from market_streaming.observability.alerts import alert_kafka_failures
 from market_streaming.producer.envelope import Envelope
 from market_streaming.producer.metrics import Metrics
-from market_streaming.observability.alerts import alert_kafka_failures
 
 log = logging.getLogger(__name__)
 
