@@ -43,3 +43,60 @@ models:
       - name: close_price
         tests:
           - not_null
+
+  - name: stg_batch__company_overview
+    description: >
+      Reference data per security (sector, market cap, shares outstanding,
+      list date). Snapshot — one row per composite_figi.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+          - unique
+      - name: ticker
+        tests:
+          - not_null
+
+  - name: stg_batch__fundamentals_valuation
+    description: >
+      TTM fundamentals + valuation ratios per security, priced as of the most
+      recent batch daily close. Snapshot — one row per composite_figi.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+          - unique
+      - name: ticker
+        tests:
+          - not_null
+      - name: quarters_included
+        description: Expected to be 4 — the upstream mart filters to full TTM coverage.
+        tests:
+          - not_null
+
+  - name: stg_batch__fundamentals_factor_scores
+    description: >
+      Cross-sectional value / growth / quality factor scores (percentile ranks)
+      with a coarse classification. Snapshot — one row per composite_figi.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+          - unique
+      - name: factor_classification
+        tests:
+          - not_null
+          - accepted_values:
+              values: [VALUE, GROWTH, QUALITY, BLEND]
+
+  - name: stg_batch__dividend_yield
+    description: >
+      TTM dividend yield per (composite_figi, ex_dividend_date). Time series
+      of every ex-dividend event with batch close on that date.
+    columns:
+      - name: composite_figi
+        tests:
+          - not_null
+      - name: ex_dividend_date
+        tests:
+          - not_null
