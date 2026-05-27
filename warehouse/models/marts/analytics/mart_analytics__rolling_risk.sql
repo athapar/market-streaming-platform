@@ -48,6 +48,13 @@ paired as (
     inner join spy_returns s on r.price_date = s.price_date
 ),
 
+{#-
+  Snowflake doesn't accept the standard-SQL `WINDOW w AS (...)` named-window
+  clause — every window function must repeat the full OVER (...) spec.
+  Keep the spec in a Jinja var so it's defined once and only once.
+-#}
+{%- set roll_window = "(partition by symbol order by price_date rows between 19 preceding and current row)" -%}
+
 rolling as (
     select
         composite_figi,
@@ -56,33 +63,31 @@ rolling as (
         log_return,
         spy_return,
 
-        count(*) over w                              as window_size,
+        count(*)                              over {{ roll_window }}  as window_size,
 
         -- rolling volatility (annualized)
-        stddev(log_return) over w * sqrt(252) * 100   as rolling_vol_ann_pct,
+        stddev(log_return)                    over {{ roll_window }} * sqrt(252) * 100
+                                                                       as rolling_vol_ann_pct,
 
         -- rolling mean return (annualized)
-        avg(log_return) over w * 252 * 100            as rolling_mean_return_ann_pct,
+        avg(log_return)                       over {{ roll_window }} * 252 * 100
+                                                                       as rolling_mean_return_ann_pct,
 
         -- rolling Sharpe approximation (no risk-free rate subtracted)
         case
-            when stddev(log_return) over w > 0
-            then (avg(log_return) over w / stddev(log_return) over w) * sqrt(252)
-        end                                           as rolling_sharpe,
+            when stddev(log_return)           over {{ roll_window }} > 0
+            then (avg(log_return)             over {{ roll_window }}
+                  / stddev(log_return)        over {{ roll_window }}) * sqrt(252)
+        end                                                            as rolling_sharpe,
 
         -- beta components
-        covar_samp(log_return, spy_return) over w     as cov_with_spy,
-        var_samp(spy_return) over w                   as var_spy,
+        covar_samp(log_return, spy_return)    over {{ roll_window }}   as cov_with_spy,
+        var_samp(spy_return)                  over {{ roll_window }}   as var_spy,
 
         -- correlation
-        corr(log_return, spy_return) over w           as rolling_correlation
+        corr(log_return, spy_return)          over {{ roll_window }}   as rolling_correlation
 
     from paired
-    window w as (
-        partition by symbol
-        order by price_date
-        rows between 19 preceding and current row
-    )
 )
 
 select
@@ -108,10 +113,7 @@ select
         when var_spy > 0 and window_size >= 10
         then (rolling_mean_return_ann_pct
               - (cov_with_spy / var_spy)
-                * avg(spy_return) over (
-                    partition by symbol order by price_date
-                    rows between 19 preceding and current row
-                  ) * 252 * 100)
+                * avg(spy_return) over {{ roll_window }} * 252 * 100)
     end                                               as rolling_alpha_ann_pct,
 
     current_timestamp()                               as computed_at
