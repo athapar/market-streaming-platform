@@ -145,6 +145,20 @@ def execute_sql(conn: "snowflake.connector.SnowflakeConnection", sql: str) -> li
         cur.close()
 
 
+def apply_ddl(conn: "snowflake.connector.SnowflakeConnection") -> None:
+    """Run the full SNOWFLAKE_DDL idempotently (CREATE … IF NOT EXISTS throughout).
+
+    Safe and cheap to call at the start of every bridge / sync script:
+    statements are no-ops once the objects exist. Adding a new table to
+    SNOWFLAKE_DDL means every bridge auto-bootstraps it on next run — no
+    separate provisioning step.
+    """
+    for stmt in SNOWFLAKE_DDL.strip().split(";"):
+        s = stmt.strip()
+        if s:
+            execute_sql(conn, s)
+
+
 # ---------------------------------------------------------------------------
 # Snowflake DDL (mirrors Gold Delta schema)
 # ---------------------------------------------------------------------------

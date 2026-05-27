@@ -30,7 +30,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 from market_streaming.config import optional_env, require_env
-from market_streaming.sync.snowflake_writer import build_connection, execute_sql
+from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, execute_sql
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +195,7 @@ def main() -> int:
         role      = optional_env("SNOWFLAKE_ROLE"),
     )
     try:
+        apply_ddl(conn)
         for bridge, df in frames:
             load(conn, bridge, df)
     finally:

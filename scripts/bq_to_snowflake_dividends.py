@@ -20,7 +20,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 from market_streaming.config import optional_env, require_env
-from market_streaming.sync.snowflake_writer import build_connection, execute_sql
+from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, execute_sql
 
 
 SF_TABLE = "DIVIDEND_YIELD"
@@ -65,6 +65,7 @@ def load(df: pd.DataFrame) -> int:
         role      = optional_env("SNOWFLAKE_ROLE"),
     )
     try:
+        apply_ddl(conn)
         execute_sql(conn, f"TRUNCATE TABLE IF EXISTS {SF_TABLE}")
         if df.empty:
             print(f"Snowflake {SF_TABLE}: 0 rows (BQ returned empty)")
