@@ -3,6 +3,8 @@
 *.json
 !.vscode/*.json
 api_resources/
+.streamlit/secrets.toml
+dashboard/.streamlit/secrets.toml
 # --- Data (parquet seeds, spillover, gap logs) ---
 data/
 

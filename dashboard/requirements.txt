@@ -1,0 +1,8 @@
+# Pinned dependencies for the Streamlit dashboard.
+# Detected automatically by Streamlit Community Cloud when the main file
+# is dashboard/app.py.
+streamlit>=1.35,<2
+plotly>=5.22,<6
+pandas>=2.2,<3
+snowflake-connector-python>=3.10
+python-dotenv>=1.0

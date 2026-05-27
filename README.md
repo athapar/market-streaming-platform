@@ -2,6 +2,8 @@
 
 End-to-end real-time market data lakehouse: **Polygon.io WebSocket → Kafka → Spark Structured Streaming → Delta Lake medallion → Snowflake**, with dbt reconciliation against a [companion batch pipeline](https://github.com/athapar/financial-data-pipeline-project). Designed for exactly-once delivery, idempotent writes, and a clean audit trail from raw event to analytical table.
 
+**Live dashboard:** _(deployed via Streamlit Community Cloud — see [`dashboard/README.md`](./dashboard/README.md))_
+
 ## Architecture
 
 ```mermaid
