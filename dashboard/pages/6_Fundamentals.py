@@ -65,11 +65,10 @@ k4.metric("Missing",        missing)
 k5.metric("Median P/E live", f"{val['live_pe_ratio'].dropna().median():.1f}")
 
 
-def _tight(fig, height=320):
+def _tight(fig, height=290):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
-        font=dict(size=10),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
     )
     return fig

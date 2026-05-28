@@ -51,7 +51,7 @@ k4.metric("p50 Latency",    f"{latest['p50_latency_s']:.1f}s")
 k5.metric("p99 Latency",    f"{latest['p99_latency_s']:.1f}s")
 
 
-def _tight(fig, height=250):
+def _tight(fig, height=225):
     dark_chart(fig, height)
     fig.update_layout(
         margin=dict(t=24, b=24, l=8, r=8),

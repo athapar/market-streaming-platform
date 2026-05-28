@@ -59,12 +59,11 @@ if not selected:
 filtered = risk_df[risk_df["symbol"].isin(selected)]
 
 
-def _tight(fig, height=260):
+def _tight(fig, height=235):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
-        font=dict(size=10),
     )
     return fig
 

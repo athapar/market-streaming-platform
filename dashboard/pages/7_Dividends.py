@@ -50,11 +50,10 @@ k3.metric("Top TTM Yield",      f"{top_yield:.2f}%" if pd.notna(top_yield) else 
 k4.metric("Ex-Div Events",      f"{len(df):,}")
 
 
-def _tight(fig, height=300):
+def _tight(fig, height=270):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
-        font=dict(size=10),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
     )
     return fig

@@ -46,11 +46,10 @@ k3.metric("Up / Down",        f"{(day_df['return_pct'] > 0).sum()} / {(day_df['r
 k4.metric("Avg Realized Vol", f"{day_df['realized_vol_ann_pct'].mean():.1f}%")
 
 
-def _tight(fig, height=300):
+def _tight(fig, height=270):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
-        font=dict(size=10),
     )
     return fig
 

@@ -84,11 +84,10 @@ k5.metric("Median |Δ return|",
           if rd_full is not None and not rd_full.empty else "—")
 
 
-def _tight(fig, height=280):
+def _tight(fig, height=250):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
-        font=dict(size=10),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=9)),
     )
     return fig

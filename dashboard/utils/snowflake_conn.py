@@ -153,9 +153,15 @@ _COMPACT_CSS = """
         border-left: 3px solid #1f6feb !important;
     }
 
-    /* Text colors */
-    h1, h2, h3 { color: #e6edf3 !important; }
+    /* Text colors — broad selectors to catch all Streamlit title variants */
+    h1, h2, h3, h4, h5, h6 { color: #e6edf3 !important; }
+    [data-testid="stHeading"] * { color: #e6edf3 !important; }
+    .stTitle, .stHeader, .stSubheader { color: #e6edf3 !important; }
+    [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMarkdownContainer"] h3 { color: #e6edf3 !important; }
     p, span, label, .stMarkdown { color: #c9d1d9 !important; }
+    [data-testid="stWidgetLabel"] * { color: #c9d1d9 !important; }
 
     /* Tighter headers */
     h1 { padding: 0 !important; margin: 0 0 0.4rem 0 !important; font-size: 1.6rem !important; }

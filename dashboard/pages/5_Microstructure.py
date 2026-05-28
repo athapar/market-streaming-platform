@@ -68,11 +68,10 @@ k4.metric("Avg Spread",    f"{spread_df['avg_spread_bps'].mean():.2f} bps" if no
 k5.metric("Quoted Syms",   len(spread_df))
 
 
-def _tight(fig, height=280):
+def _tight(fig, height=250):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
-        font=dict(size=10),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
     )
     return fig

@@ -62,11 +62,10 @@ k3.metric("Avg Validity",      f"{day_dq['validity_pct'].mean():.1f}%")
 k4.metric("Total Invalid Bars", int(day_dq["total_invalid_bars"].sum()))
 
 
-def _tight(fig, height=280):
+def _tight(fig, height=250):
+    dark_chart(fig, height)
     fig.update_layout(
-        height=height,
         margin=dict(t=24, b=24, l=8, r=8),
-        font=dict(size=10),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
     )
     return fig

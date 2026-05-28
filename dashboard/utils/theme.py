@@ -53,7 +53,7 @@ pio.templates["dark_bloomberg"] = DARK_TEMPLATE
 pio.templates.default = "dark_bloomberg"
 
 
-def dark_chart(fig: go.Figure, height: int = 350) -> go.Figure:
+def dark_chart(fig: go.Figure, height: int = 315) -> go.Figure:
     """Apply dark theme overrides to a plotly figure."""
     fig.update_layout(
         template=DARK_TEMPLATE,
