@@ -1,11 +1,12 @@
 """Market Overview — returns heatmap, top movers, volume leaders."""
 import streamlit as st
 import plotly.express as px
-import pandas as pd
 
-from utils.snowflake_conn import fqn, query
+from utils.snowflake_conn import compact_layout, fqn, query
+from utils.theme import dark_chart  # noqa: F401 — registers dark template on import
 
 st.set_page_config(page_title="Market Overview", layout="wide")
+compact_layout()
 st.title("Market Overview")
 
 
@@ -30,80 +31,81 @@ if df.empty:
     st.stop()
 
 dates = sorted(df["event_date"].unique(), reverse=True)
-selected_date = st.selectbox("Trading Date", dates, index=0)
+date_col, _ = st.columns([1, 5])
+with date_col:
+    selected_date = st.selectbox("Trading Date", dates, index=0, label_visibility="collapsed")
 
 day_df = df[df["event_date"] == selected_date].copy()
 day_df["return_pct"] = day_df["daily_simple_return"] * 100
 
-# --- KPIs ---
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Symbols Tracked", len(day_df))
-col2.metric("Avg Return", f"{day_df['return_pct'].mean():.2f}%")
-col3.metric("Advancers / Decliners",
-            f"{(day_df['return_pct'] > 0).sum()} / {(day_df['return_pct'] < 0).sum()}")
-col4.metric("Avg Realized Vol",
-            f"{day_df['realized_vol_ann_pct'].mean():.1f}%")
+# --- KPIs (4 metric tiles) ---
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Symbols",          len(day_df))
+k2.metric("Avg Return",       f"{day_df['return_pct'].mean():.2f}%")
+k3.metric("Up / Down",        f"{(day_df['return_pct'] > 0).sum()} / {(day_df['return_pct'] < 0).sum()}")
+k4.metric("Avg Realized Vol", f"{day_df['realized_vol_ann_pct'].mean():.1f}%")
 
-st.divider()
 
-# --- Returns Heatmap (treemap) ---
-st.subheader("Daily Returns Treemap")
-tree_df = day_df[day_df["total_dollar_volume"].notna()].copy()
-tree_df["abs_dv"] = tree_df["total_dollar_volume"].abs().clip(lower=1)
+def _tight(fig, height=300):
+    fig.update_layout(
+        height=height,
+        margin=dict(t=24, b=24, l=8, r=8),
+        font=dict(size=10),
+    )
+    return fig
 
-fig_tree = px.treemap(
-    tree_df,
-    path=["symbol"],
-    values="abs_dv",
-    color="return_pct",
-    color_continuous_scale="RdYlGn",
-    color_continuous_midpoint=0,
-    hover_data={"return_pct": ":.2f", "close_price": ":.2f", "total_volume": ":,.0f"},
-)
-fig_tree.update_layout(height=500, margin=dict(t=30, l=0, r=0, b=0))
-st.plotly_chart(fig_tree, use_container_width=True)
 
-# --- Top Movers ---
-col_up, col_down = st.columns(2)
+# --- Row: treemap (2/3) + volume leaders (1/3) ---
+c_tree, c_vol = st.columns([2, 1])
 
-with col_up:
+with c_tree:
+    st.subheader("Daily Returns Treemap (sized by $-volume)")
+    tree_df = day_df[day_df["total_dollar_volume"].notna()].copy()
+    tree_df["abs_dv"] = tree_df["total_dollar_volume"].abs().clip(lower=1)
+    fig_tree = px.treemap(
+        tree_df, path=["symbol"], values="abs_dv",
+        color="return_pct", color_continuous_scale="RdYlGn",
+        color_continuous_midpoint=0,
+        hover_data={"return_pct": ":.2f", "close_price": ":.2f", "total_volume": ":,.0f"},
+    )
+    st.plotly_chart(_tight(fig_tree, height=420), use_container_width=True)
+
+with c_vol:
+    st.subheader("Top 15 by $-Volume")
+    vol_df = day_df.nlargest(15, "total_dollar_volume")
+    fig_vol = px.bar(
+        vol_df, y="symbol", x="total_dollar_volume", orientation="h",
+        color="return_pct", color_continuous_scale="RdYlGn",
+        color_continuous_midpoint=0,
+    )
+    fig_vol.update_layout(yaxis=dict(autorange="reversed"),
+                          xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(_tight(fig_vol, height=420), use_container_width=True)
+
+# --- Row: gainers + losers + unusual (3 tables) ---
+g, l, u = st.columns(3)
+
+with g:
     st.subheader("Top Gainers")
-    top_up = day_df.nlargest(10, "return_pct")[
-        ["symbol", "return_pct", "close_price", "total_volume"]
-    ].reset_index(drop=True)
-    top_up.columns = ["Symbol", "Return %", "Close", "Volume"]
-    st.dataframe(top_up, use_container_width=True, hide_index=True)
+    tg = day_df.nlargest(10, "return_pct")[
+        ["symbol", "return_pct", "close_price"]].reset_index(drop=True)
+    tg.columns = ["Sym", "Return %", "Close"]
+    st.dataframe(tg, use_container_width=True, hide_index=True, height=370)
 
-with col_down:
+with l:
     st.subheader("Top Losers")
-    top_dn = day_df.nsmallest(10, "return_pct")[
-        ["symbol", "return_pct", "close_price", "total_volume"]
-    ].reset_index(drop=True)
-    top_dn.columns = ["Symbol", "Return %", "Close", "Volume"]
-    st.dataframe(top_dn, use_container_width=True, hide_index=True)
+    tl = day_df.nsmallest(10, "return_pct")[
+        ["symbol", "return_pct", "close_price"]].reset_index(drop=True)
+    tl.columns = ["Sym", "Return %", "Close"]
+    st.dataframe(tl, use_container_width=True, hide_index=True, height=370)
 
-# --- Volume Leaders ---
-st.subheader("Dollar Volume Leaders")
-vol_df = day_df.nlargest(20, "total_dollar_volume")
-fig_vol = px.bar(
-    vol_df, x="symbol", y="total_dollar_volume",
-    color="return_pct", color_continuous_scale="RdYlGn",
-    color_continuous_midpoint=0,
-)
-fig_vol.update_layout(
-    height=350, margin=dict(t=20),
-    xaxis_title="Symbol", yaxis_title="Dollar Volume (USD)",
-)
-st.plotly_chart(fig_vol, use_container_width=True)
-
-# --- Unusual Activity ---
-st.subheader("Unusual Activity Flags")
-unusual = day_df[day_df["volume_zscore"].abs() > 2.0][
-    ["symbol", "return_pct", "volume_zscore", "realized_vol_ann_pct", "total_volume"]
-].sort_values("volume_zscore", ascending=False).reset_index(drop=True)
-unusual.columns = ["Symbol", "Return %", "Volume Z-Score", "Realized Vol %", "Volume"]
-
-if unusual.empty:
-    st.info("No unusual activity detected for this date.")
-else:
-    st.dataframe(unusual, use_container_width=True, hide_index=True)
+with u:
+    st.subheader("Unusual Activity (|Z| > 2)")
+    unusual = day_df[day_df["volume_zscore"].abs() > 2.0][
+        ["symbol", "return_pct", "volume_zscore"]
+    ].sort_values("volume_zscore", ascending=False).reset_index(drop=True)
+    unusual.columns = ["Sym", "Return %", "Vol Z"]
+    if unusual.empty:
+        st.info("No unusual activity for this date.")
+    else:
+        st.dataframe(unusual, use_container_width=True, hide_index=True, height=370)

@@ -2,11 +2,12 @@
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-from utils.snowflake_conn import fqn, query
+from utils.snowflake_conn import compact_layout, fqn, query
+from utils.theme import CYAN, GREEN, ORANGE, dark_chart
 
 st.set_page_config(page_title="Pipeline Health", layout="wide")
+compact_layout()
 st.title("Pipeline Health")
 
 
@@ -18,7 +19,7 @@ def load_health():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=200)
 def load_quality_summary():
     return query(f"""
         SELECT
@@ -40,66 +41,78 @@ if df.empty:
     st.warning("No pipeline health data yet. Run the pipeline for at least one market day.")
     st.stop()
 
-# --- KPIs ---
+# --- KPIs (row 1) ---
 latest = df.iloc[-1]
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Active Symbols", int(latest["symbols_active"]))
-col2.metric("Bars Today", f"{int(latest['total_bars']):,}")
-col3.metric("Coverage", f"{latest['coverage_pct']:.1f}%")
-col4.metric("p50 Latency", f"{latest['p50_latency_s']:.1f}s")
-col5.metric("p99 Latency", f"{latest['p99_latency_s']:.1f}s")
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Active Symbols", int(latest["symbols_active"]))
+k2.metric("Bars Today",     f"{int(latest['total_bars']):,}")
+k3.metric("Coverage",       f"{latest['coverage_pct']:.1f}%")
+k4.metric("p50 Latency",    f"{latest['p50_latency_s']:.1f}s")
+k5.metric("p99 Latency",    f"{latest['p99_latency_s']:.1f}s")
 
-st.divider()
 
-# --- Latency over time ---
-st.subheader("Processing Latency (seconds)")
-fig_latency = go.Figure()
-for col, name, dash in [
-    ("p50_latency_s", "p50", "solid"),
-    ("p95_latency_s", "p95", "dash"),
-    ("p99_latency_s", "p99", "dot"),
-]:
-    fig_latency.add_trace(go.Scatter(
-        x=df["event_date"], y=df[col],
-        name=name, mode="lines+markers",
-        line=dict(dash=dash),
-    ))
-fig_latency.update_layout(
-    yaxis_title="Seconds",
-    xaxis_title="Date",
-    height=350,
-    margin=dict(t=20),
-)
-st.plotly_chart(fig_latency, use_container_width=True)
+def _tight(fig, height=250):
+    dark_chart(fig, height)
+    fig.update_layout(
+        margin=dict(t=24, b=24, l=8, r=8),
+        legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
+    )
+    return fig
 
-# --- Throughput and Coverage ---
-col_left, col_right = st.columns(2)
 
-with col_left:
-    st.subheader("Daily Bar Count")
-    fig_bars = px.bar(df, x="event_date", y="total_bars", color_discrete_sequence=["#636EFA"])
-    fig_bars.update_layout(height=300, margin=dict(t=20), xaxis_title="Date", yaxis_title="Bars")
-    st.plotly_chart(fig_bars, use_container_width=True)
+# --- Row 2: latency + coverage + dollar volume (3 cols) ---
+c1, c2, c3 = st.columns(3)
 
-with col_right:
+with c1:
+    st.subheader("Processing Latency (s)")
+    fig_latency = go.Figure()
+    for col, name, dash in [
+        ("p50_latency_s", "p50", "solid"),
+        ("p95_latency_s", "p95", "dash"),
+        ("p99_latency_s", "p99", "dot"),
+    ]:
+        fig_latency.add_trace(go.Scatter(
+            x=df["event_date"], y=df[col],
+            name=name, mode="lines+markers",
+            line=dict(dash=dash),
+        ))
+    fig_latency.update_layout(yaxis_title="seconds", xaxis_title=None)
+    st.plotly_chart(_tight(fig_latency), use_container_width=True)
+
+with c2:
     st.subheader("Session Coverage (%)")
     fig_cov = px.line(df, x="event_date", y="coverage_pct", markers=True)
-    fig_cov.update_layout(height=300, margin=dict(t=20), xaxis_title="Date", yaxis_title="%")
-    fig_cov.add_hline(y=100, line_dash="dash", line_color="green", annotation_text="Full Session")
-    st.plotly_chart(fig_cov, use_container_width=True)
+    fig_cov.update_layout(yaxis_title="%", xaxis_title=None)
+    fig_cov.add_hline(y=100, line_dash="dash", line_color=GREEN,
+                      annotation_text="full")
+    st.plotly_chart(_tight(fig_cov), use_container_width=True)
 
-# --- Dollar Volume ---
-st.subheader("Total Dollar Volume Processed")
-fig_dv = px.area(df, x="event_date", y="total_dollar_volume")
-fig_dv.update_layout(height=300, margin=dict(t=20), yaxis_title="USD", xaxis_title="Date")
-st.plotly_chart(fig_dv, use_container_width=True)
+with c3:
+    st.subheader("Dollar Volume (USD)")
+    fig_dv = px.area(df, x="event_date", y="total_dollar_volume",
+                     color_discrete_sequence=[CYAN])
+    fig_dv.update_layout(yaxis_title=None, xaxis_title=None)
+    st.plotly_chart(_tight(fig_dv), use_container_width=True)
 
-# --- Data Quality Trend ---
-dq = load_quality_summary()
-if not dq.empty:
-    st.subheader("Data Quality Score (daily average)")
-    fig_dq = px.line(dq, x="event_date", y="avg_quality_score", markers=True,
-                     color_discrete_sequence=["#00CC96"])
-    fig_dq.update_layout(height=300, margin=dict(t=20), yaxis_title="Score (0-100)", xaxis_title="Date")
-    fig_dq.add_hline(y=90, line_dash="dash", line_color="orange", annotation_text="Target")
-    st.plotly_chart(fig_dq, use_container_width=True)
+# --- Row 3: bar count + quality (2 cols) ---
+c4, c5 = st.columns(2)
+
+with c4:
+    st.subheader("Daily Bar Count")
+    fig_bars = px.bar(df, x="event_date", y="total_bars",
+                      color_discrete_sequence=[CYAN])
+    fig_bars.update_layout(yaxis_title="bars", xaxis_title=None)
+    st.plotly_chart(_tight(fig_bars), use_container_width=True)
+
+with c5:
+    dq = load_quality_summary()
+    if not dq.empty:
+        st.subheader("Data Quality Score (daily avg)")
+        fig_dq = px.line(dq, x="event_date", y="avg_quality_score", markers=True,
+                         color_discrete_sequence=[GREEN])
+        fig_dq.update_layout(yaxis_title="score (0-100)", xaxis_title=None)
+        fig_dq.add_hline(y=90, line_dash="dash", line_color=ORANGE,
+                         annotation_text="target")
+        st.plotly_chart(_tight(fig_dq), use_container_width=True)
+    else:
+        st.info("Data Quality mart not yet populated.")

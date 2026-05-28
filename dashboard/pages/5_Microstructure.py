@@ -2,11 +2,12 @@
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-import pandas as pd
 
-from utils.snowflake_conn import fqn, query
+from utils.snowflake_conn import compact_layout, fqn, query
+from utils.theme import CYAN, RED, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Microstructure", layout="wide")
+compact_layout()
 st.title("Microstructure Analytics")
 
 
@@ -47,121 +48,111 @@ def load_trade_sizes():
 
 
 df = load_micro_daily()
-
 if df.empty:
     st.warning("No microstructure data yet. Run the trades/quotes pipeline and `dbt run`.")
     st.stop()
 
 dates = sorted(df["trade_date"].unique(), reverse=True)
-selected_date = st.selectbox("Trading Date", dates, index=0)
+date_col, _ = st.columns([1, 5])
+with date_col:
+    selected_date = st.selectbox("Trading Date", dates, index=0, label_visibility="collapsed")
 day_df = df[df["trade_date"] == selected_date]
 
 # --- KPIs ---
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Symbols", len(day_df))
-col2.metric("Total Trades", f"{day_df['trade_count'].sum():,.0f}")
-col3.metric("Dollar Volume", f"${day_df['total_dollar_volume'].sum():,.0f}")
-
 spread_df = day_df[day_df["avg_spread_bps"].notna()]
-if not spread_df.empty:
-    col4.metric("Avg Spread", f"{spread_df['avg_spread_bps'].mean():.1f} bps")
-    col5.metric("Symbols w/ Quotes", len(spread_df))
-else:
-    col4.metric("Avg Spread", "N/A")
-    col5.metric("Symbols w/ Quotes", "0")
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Symbols",       len(day_df))
+k2.metric("Total Trades",  f"{day_df['trade_count'].sum():,.0f}")
+k3.metric("$-Volume",      f"${day_df['total_dollar_volume'].sum() / 1e9:,.2f}B")
+k4.metric("Avg Spread",    f"{spread_df['avg_spread_bps'].mean():.2f} bps" if not spread_df.empty else "N/A")
+k5.metric("Quoted Syms",   len(spread_df))
 
-st.divider()
 
-# --- Spread by Symbol ---
-if not spread_df.empty:
+def _tight(fig, height=280):
+    fig.update_layout(
+        height=height,
+        margin=dict(t=24, b=24, l=8, r=8),
+        font=dict(size=10),
+        legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
+    )
+    return fig
+
+
+# --- Row 1: spread, imbalance, block (3 cols) ---
+c1, c2, c3 = st.columns(3)
+
+with c1:
     st.subheader("Bid-Ask Spread by Symbol")
-    spread_sorted = spread_df.sort_values("avg_spread_bps")
-    fig_spread = px.bar(
-        spread_sorted, x="symbol", y="avg_spread_bps",
-        color="avg_spread_bps", color_continuous_scale="YlOrRd",
-        hover_data={"min_spread_bps": ":.2f", "max_spread_bps": ":.2f",
-                     "total_quotes": ":,.0f"},
-    )
-    fig_spread.update_layout(height=350, margin=dict(t=20),
-                              xaxis_title="Symbol", yaxis_title="Avg Spread (bps)")
-    st.plotly_chart(fig_spread, use_container_width=True)
-
-# --- Trade Imbalance ---
-col_left, col_right = st.columns(2)
-
-with col_left:
-    st.subheader("Buy/Sell Imbalance (Tick Rule)")
-    imb_df = day_df.sort_values("trade_imbalance")
-    fig_imb = px.bar(
-        imb_df, x="symbol", y="trade_imbalance",
-        color="trade_imbalance", color_continuous_scale="RdYlGn",
-        color_continuous_midpoint=0,
-    )
-    fig_imb.update_layout(height=350, margin=dict(t=20),
-                           xaxis_title="Symbol", yaxis_title="Imbalance")
-    st.plotly_chart(fig_imb, use_container_width=True)
-
-with col_right:
-    st.subheader("Block Trades")
-    block_df = day_df[day_df["block_trade_count"] > 0].sort_values(
-        "block_dollar_volume", ascending=False
-    ).head(20)
-    if not block_df.empty:
-        fig_block = px.bar(
-            block_df, x="symbol", y="block_dollar_volume",
-            color="block_trade_count", color_continuous_scale="Blues",
-        )
-        fig_block.update_layout(height=350, margin=dict(t=20),
-                                 xaxis_title="Symbol", yaxis_title="Block $ Volume")
-        st.plotly_chart(fig_block, use_container_width=True)
+    if not spread_df.empty:
+        ss = spread_df.sort_values("avg_spread_bps")
+        fig_sp = px.bar(ss, x="symbol", y="avg_spread_bps",
+                        color="avg_spread_bps", color_continuous_scale="YlOrRd")
+        fig_sp.update_layout(xaxis_title=None, yaxis_title="bps")
+        st.plotly_chart(_tight(fig_sp), use_container_width=True)
     else:
-        st.info("No block trades detected.")
+        st.info("No quote data for this date.")
 
-# --- Intraday Spread Profile ---
-st.divider()
-st.subheader("Intraday Spread Profile (U-Curve)")
-sp_df = load_spread_profile()
+with c2:
+    st.subheader("Trade Imbalance (tick rule)")
+    imb_df = day_df.sort_values("trade_imbalance")
+    fig_imb = px.bar(imb_df, x="symbol", y="trade_imbalance",
+                     color="trade_imbalance", color_continuous_scale="RdYlGn",
+                     color_continuous_midpoint=0)
+    fig_imb.update_layout(xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(_tight(fig_imb), use_container_width=True)
 
-if not sp_df.empty:
-    sp_symbols = sorted(sp_df["symbol"].unique())
-    sp_selected = st.selectbox("Symbol", sp_symbols, index=0)
-    sp_filtered = sp_df[sp_df["symbol"] == sp_selected]
+with c3:
+    st.subheader("Block Trades ($)")
+    block_df = day_df[day_df["block_trade_count"] > 0].sort_values(
+        "block_dollar_volume", ascending=False).head(20)
+    if not block_df.empty:
+        fig_block = px.bar(block_df, x="symbol", y="block_dollar_volume",
+                           color="block_trade_count", color_continuous_scale="Blues")
+        fig_block.update_layout(xaxis_title=None, yaxis_title=None)
+        st.plotly_chart(_tight(fig_block), use_container_width=True)
+    else:
+        st.info("No block trades.")
 
-    fig_ucurve = go.Figure()
-    fig_ucurve.add_trace(go.Bar(
-        x=sp_filtered["bucket_id"].astype(str),
-        y=sp_filtered["avg_spread_bps"],
-        name="Avg Spread (bps)",
-        marker_color=sp_filtered["relative_spread"].apply(
-            lambda x: "#EF553B" if x > 1.3 else ("#636EFA" if x > 0.8 else "#B6B6B6")
-        ),
-    ))
-    fig_ucurve.update_layout(
-        height=350, margin=dict(t=20),
-        xaxis_title="Time of Day (HHMM)",
-        yaxis_title="Average Spread (bps)",
-    )
-    st.plotly_chart(fig_ucurve, use_container_width=True)
-else:
-    st.info("No spread profile data yet.")
+# --- Row 2: spread U-curve (1/2) + trade size sunburst (1/2) ---
+c4, c5 = st.columns(2)
 
-# --- Trade Size Distribution ---
-st.divider()
-st.subheader("Trade Size Distribution")
-ts_df = load_trade_sizes()
+with c4:
+    sp_df = load_spread_profile()
+    st.subheader("Intraday Spread U-Curve")
+    if not sp_df.empty:
+        sp_symbols = sorted(sp_df["symbol"].unique())
+        sel_col, _ = st.columns([1, 3])
+        with sel_col:
+            sp_selected = st.selectbox("Symbol", sp_symbols, index=0,
+                                       key="ucurve_sym", label_visibility="collapsed")
+        sp_filtered = sp_df[sp_df["symbol"] == sp_selected]
+        fig_ucurve = go.Figure()
+        fig_ucurve.add_trace(go.Bar(
+            x=sp_filtered["bucket_id"].astype(str),
+            y=sp_filtered["avg_spread_bps"],
+            marker_color=sp_filtered["relative_spread"].apply(
+                lambda x: "#EF553B" if x > 1.3 else ("#636EFA" if x > 0.8 else "#B6B6B6")
+            ),
+            hovertemplate="Bucket: %{x}<br>Spread: %{y:.2f} bps<extra></extra>",
+        ))
+        fig_ucurve.update_layout(xaxis_title="time of day (HHMM)", yaxis_title="bps")
+        st.plotly_chart(_tight(fig_ucurve, height=300), use_container_width=True)
+    else:
+        st.info("No spread profile data.")
 
-if not ts_df.empty:
-    ts_day = ts_df[ts_df["trade_date"] == selected_date]
-    if not ts_day.empty:
-        fig_size = px.sunburst(
-            ts_day, path=["size_class", "symbol"],
-            values="total_dollar_volume",
-            color="size_class",
-            color_discrete_map={
-                "ODD_LOT": "#FFA15A", "ROUND_LOT": "#636EFA", "BLOCK": "#EF553B"
-            },
-        )
-        fig_size.update_layout(height=450, margin=dict(t=20))
-        st.plotly_chart(fig_size, use_container_width=True)
-else:
-    st.info("No trade size data yet.")
+with c5:
+    ts_df = load_trade_sizes()
+    st.subheader("Trade Size Distribution ($-volume)")
+    if not ts_df.empty:
+        ts_day = ts_df[ts_df["trade_date"] == selected_date]
+        if not ts_day.empty:
+            fig_size = px.sunburst(
+                ts_day, path=["size_class", "symbol"], values="total_dollar_volume",
+                color="size_class",
+                color_discrete_map={
+                    "ODD_LOT": "#FFA15A", "ROUND_LOT": "#636EFA", "BLOCK": "#EF553B"
+                },
+            )
+            st.plotly_chart(_tight(fig_size, height=340), use_container_width=True)
+    else:
+        st.info("No trade size data.")

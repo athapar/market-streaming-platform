@@ -8,12 +8,16 @@ Run: streamlit run dashboard/app.py
 """
 import streamlit as st
 
+from utils.snowflake_conn import compact_layout
+from utils.theme import dark_chart  # noqa: F401 — registers dark plotly template
+
 st.set_page_config(
     page_title="Market Streaming Pipeline",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+compact_layout()
 
 st.title("Market Streaming Pipeline")
 st.markdown(

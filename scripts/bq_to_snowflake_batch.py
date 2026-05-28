@@ -14,8 +14,10 @@ pipeline. Adjust BQ_MART_TABLE in your .env if the table name differs.
 
 Usage:
     python scripts/bq_to_snowflake_batch.py [--date YYYY-MM-DD] [--dry-run]
+    python scripts/bq_to_snowflake_batch.py --backfill [--dry-run]
 
     --date      specific trading date to sync (default: today)
+    --backfill  load ALL history from BigQuery (truncate + full reload)
     --dry-run   query BQ and print rows but skip Snowflake write
 """
 from __future__ import annotations
@@ -35,17 +37,13 @@ from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, 
 # BQ query — pulls from the batch pipeline's daily fact table
 # ---------------------------------------------------------------------------
 
+def _mart_table() -> str:
+    return optional_env("BQ_MART_TABLE") or "fact_daily_prices"
+
+
 def build_bq_query(project: str, dataset: str, symbols: list[str], price_date: date) -> str:
     symbol_list = ", ".join(f"'{s}'" for s in symbols)
     date_str    = price_date.isoformat()
-    # Default to the batch's split-adjusted daily fact (fact_daily_prices).
-    # Override with BQ_MART_TABLE if the table name differs in your project.
-    mart_table  = optional_env("BQ_MART_TABLE") or "fact_daily_prices"
-    # composite_figi is already a column on fact_daily_prices (the batch dbt
-    # model attaches it via int_security_master_historical), so no SCD2 join
-    # is needed here. The previous SCD2 join silently dropped tickers that
-    # Polygon's reference endpoint returns no composite_figi for (ACN, BK,
-    # LIN, MDT). Reading the column directly preserves the full universe.
     return f"""
         SELECT
             composite_figi,
@@ -58,26 +56,60 @@ def build_bq_query(project: str, dataset: str, symbols: list[str], price_date: d
             volume,
             vwap,
             'batch_bigquery'        AS source
-        FROM `{project}.{dataset}.{mart_table}`
+        FROM `{project}.{dataset}.{_mart_table()}`
         WHERE price_date = '{date_str}'
           AND ticker IN ({symbol_list})
           AND composite_figi IS NOT NULL
     """
 
 
-def fetch_batch_prices(price_date: date) -> pd.DataFrame:
+def build_bq_backfill_query(project: str, dataset: str, symbols: list[str]) -> str:
+    symbol_list = ", ".join(f"'{s}'" for s in symbols)
+    return f"""
+        SELECT
+            composite_figi,
+            ticker                  AS symbol,
+            price_date,
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+            volume,
+            vwap,
+            'batch_bigquery'        AS source
+        FROM `{project}.{dataset}.{_mart_table()}`
+        WHERE ticker IN ({symbol_list})
+          AND composite_figi IS NOT NULL
+        ORDER BY price_date
+    """
+
+
+def _bq_client_and_symbols():
     project = require_env("GOOGLE_CLOUD_PROJECT")
     dataset = require_env("BQ_DATASET_ID")
     require_env("GOOGLE_APPLICATION_CREDENTIALS")
-
     symbols = load_symbols()
     if not symbols:
         raise RuntimeError("symbols.txt is empty")
-
     client = bigquery.Client(project=project)
-    query  = build_bq_query(project, dataset, symbols, price_date)
-    df     = client.query(query).result().to_dataframe()
+    return client, project, dataset, symbols
+
+
+def fetch_batch_prices(price_date: date) -> pd.DataFrame:
+    client, project, dataset, symbols = _bq_client_and_symbols()
+    query = build_bq_query(project, dataset, symbols, price_date)
+    df = client.query(query).result().to_dataframe()
     print(f"BQ returned {len(df)} rows for {price_date}")
+    return df
+
+
+def fetch_all_batch_prices() -> pd.DataFrame:
+    client, project, dataset, symbols = _bq_client_and_symbols()
+    query = build_bq_backfill_query(project, dataset, symbols)
+    print(f"fetching full history from {project}.{dataset}.{_mart_table()} ...")
+    df = client.query(query).result().to_dataframe()
+    date_range = f"{df['price_date'].min()} to {df['price_date'].max()}" if len(df) else "empty"
+    print(f"BQ returned {len(df):,} rows ({date_range})")
     return df
 
 
@@ -85,11 +117,8 @@ def fetch_batch_prices(price_date: date) -> pd.DataFrame:
 # Snowflake load
 # ---------------------------------------------------------------------------
 
-def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
-    """DELETE existing rows for price_date then INSERT fresh from BQ."""
-    from snowflake.connector.pandas_tools import write_pandas
-
-    conn = build_connection(
+def _sf_conn():
+    return build_connection(
         account   = require_env("SNOWFLAKE_ACCOUNT"),
         user      = require_env("SNOWFLAKE_USER"),
         password  = require_env("SNOWFLAKE_PASSWORD"),
@@ -99,9 +128,14 @@ def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
         role      = optional_env("SNOWFLAKE_ROLE"),
     )
 
+
+def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
+    """DELETE existing rows for price_date then INSERT fresh from BQ."""
+    from snowflake.connector.pandas_tools import write_pandas
+
+    conn = _sf_conn()
     try:
         apply_ddl(conn)
-        # Delete the date's rows first so the load is idempotent
         execute_sql(
             conn,
             f"DELETE FROM BATCH_DAILY_PRICES WHERE PRICE_DATE = '{price_date.isoformat()}'"
@@ -123,6 +157,32 @@ def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:
         conn.close()
 
 
+def backfill_to_snowflake(df: pd.DataFrame) -> int:
+    """TRUNCATE then bulk load entire history from BQ."""
+    from snowflake.connector.pandas_tools import write_pandas
+
+    conn = _sf_conn()
+    try:
+        apply_ddl(conn)
+        execute_sql(conn, "TRUNCATE TABLE IF EXISTS BATCH_DAILY_PRICES")
+        print("truncated BATCH_DAILY_PRICES")
+
+        df.columns = [c.upper() for c in df.columns]
+        _, _, nrows, _ = write_pandas(
+            conn=conn,
+            df=df,
+            table_name="BATCH_DAILY_PRICES",
+            database="MARKET_STREAMING",
+            schema="RECON",
+            overwrite=False,
+            auto_create_table=False,
+        )
+        print(f"Snowflake BATCH_DAILY_PRICES: {nrows:,} rows loaded (full backfill)")
+        return nrows
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -135,11 +195,36 @@ def main() -> int:
         help="Trading date to sync (YYYY-MM-DD, default: today)",
     )
     p.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Load ALL history from BigQuery (truncate + full reload)",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Fetch from BQ and print rows; skip Snowflake write",
+        help="Fetch from BQ and print summary; skip Snowflake write",
     )
     args = p.parse_args()
+
+    if args.backfill:
+        print("backfill mode: loading full history from BigQuery ...")
+        df = fetch_all_batch_prices()
+
+        if df.empty:
+            print("no batch rows found in BigQuery")
+            return 0
+
+        symbols = df["symbol"].nunique()
+        dates = df["price_date"].nunique()
+        print(f"  {len(df):,} rows — {symbols} symbols × {dates:,} trading days")
+        print(f"  date range: {df['price_date'].min()} to {df['price_date'].max()}")
+
+        if args.dry_run:
+            print("dry-run: skipping Snowflake write")
+            return 0
+
+        backfill_to_snowflake(df)
+        return 0
 
     price_date = date.fromisoformat(args.date)
     print(f"syncing batch prices for {price_date} ...")

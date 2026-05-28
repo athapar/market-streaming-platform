@@ -121,3 +121,96 @@ def fqn(custom_schema: str, table: str) -> str:
     not carry the DBT_TARGET prefix.
     """
     return f"{DATABASE}.{_DBT_TARGET}_{custom_schema.upper()}.{table.upper()}"
+
+
+# ---------------------------------------------------------------------------
+# Compact-layout CSS — call at the top of every page after st.set_page_config
+# ---------------------------------------------------------------------------
+
+_COMPACT_CSS = """
+<style>
+    /* ── Dark Bloomberg-style terminal theme ── */
+
+    /* Main background */
+    .stApp, [data-testid="stAppViewContainer"] {
+        background-color: #0a0e17 !important;
+    }
+    .block-container {
+        padding: 0.5rem 1rem 1rem 1rem !important;
+        max-width: 100% !important;
+        background-color: #0a0e17 !important;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #0d1117 !important;
+        border-right: 1px solid #1a2332 !important;
+    }
+    [data-testid="stSidebar"] * { color: #8b949e !important; }
+    [data-testid="stSidebar"] a:hover { color: #58a6ff !important; }
+    [data-testid="stSidebarNavLink"][aria-selected="true"] {
+        background-color: #161b22 !important;
+        border-left: 3px solid #1f6feb !important;
+    }
+
+    /* Text colors */
+    h1, h2, h3 { color: #e6edf3 !important; }
+    p, span, label, .stMarkdown { color: #c9d1d9 !important; }
+
+    /* Tighter headers */
+    h1 { padding: 0 !important; margin: 0 0 0.4rem 0 !important; font-size: 1.6rem !important; }
+    h2 { padding: 0 !important; margin: 0.6rem 0 0.2rem 0 !important; font-size: 1.15rem !important; }
+    h3 { padding: 0 !important; margin: 0.5rem 0 0.2rem 0 !important; font-size: 1.0rem  !important; }
+
+    /* Metric tiles — dark card style */
+    [data-testid="stMetric"] {
+        background-color: #161b22 !important;
+        border: 1px solid #1a2332 !important;
+        border-radius: 6px !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.15rem !important;
+        line-height: 1.2 !important;
+        color: #58a6ff !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.78rem !important;
+        color: #8b949e !important;
+    }
+
+    /* Dividers */
+    hr { margin: 0.35rem 0 !important; border-color: #1a2332 !important; }
+
+    /* Plotly charts: kill default vertical margin */
+    div[data-testid="stPlotlyChart"] { margin: 0 !important; padding: 0 !important; }
+
+    /* DataFrames — dark tables */
+    .stDataFrame { margin-top: 0.2rem !important; }
+    .stDataFrame table { background-color: #0d1117 !important; color: #c9d1d9 !important; }
+    .stDataFrame th { background-color: #161b22 !important; color: #8b949e !important; }
+
+    /* Column gutter */
+    div[data-testid="column"] > div { gap: 0.3rem !important; padding-top: 0 !important; }
+
+    /* Caption */
+    [data-testid="stCaptionContainer"] { margin-top: -0.2rem !important; margin-bottom: 0.3rem !important; }
+
+    /* Select boxes / inputs */
+    [data-testid="stSelectbox"] label { color: #8b949e !important; }
+    .stSelectbox > div > div { background-color: #161b22 !important; border-color: #1a2332 !important; }
+    .stMultiSelect > div > div { background-color: #161b22 !important; border-color: #1a2332 !important; }
+
+    /* Info/warning boxes */
+    .stAlert { background-color: #161b22 !important; border-color: #1a2332 !important; }
+</style>
+"""
+
+
+def compact_layout() -> None:
+    """Inject CSS that compacts headers, metrics, charts, and gutters.
+
+    Call once at the top of each page, immediately after st.set_page_config.
+    Idempotent — Streamlit will render the <style> block once per session.
+    """
+    st.markdown(_COMPACT_CSS, unsafe_allow_html=True)

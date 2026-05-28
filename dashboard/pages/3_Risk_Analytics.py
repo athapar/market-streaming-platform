@@ -3,11 +3,12 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-import numpy as np
 
-from utils.snowflake_conn import fqn, query
+from utils.snowflake_conn import compact_layout, fqn, query
+from utils.theme import CYAN, GRAY, BG_CARD, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Risk Analytics", layout="wide")
+compact_layout()
 st.title("Risk Analytics")
 
 
@@ -42,13 +43,14 @@ def load_volume_profile():
 
 
 risk_df = load_risk()
-
 if risk_df.empty:
     st.warning("No risk data yet. Run `dbt run` after accumulating >= 10 trading days.")
     st.stop()
 
 symbols = sorted(risk_df["symbol"].unique())
-selected = st.multiselect("Symbols", symbols, default=["AAPL", "NVDA", "MSFT", "SPY"][:len(symbols)])
+default_pick = [s for s in ["AAPL", "NVDA", "MSFT", "SPY"] if s in symbols][:4]
+selected = st.multiselect("Symbols", symbols, default=default_pick or symbols[:4],
+                          label_visibility="collapsed")
 
 if not selected:
     st.info("Select at least one symbol.")
@@ -56,90 +58,90 @@ if not selected:
 
 filtered = risk_df[risk_df["symbol"].isin(selected)]
 
-# --- Rolling Beta ---
-st.subheader("Rolling 20-Day Beta vs SPY")
-fig_beta = px.line(filtered, x="price_date", y="rolling_beta", color="symbol")
-fig_beta.add_hline(y=1.0, line_dash="dash", line_color="gray", annotation_text="Market (1.0)")
-fig_beta.update_layout(height=350, margin=dict(t=20), xaxis_title="Date", yaxis_title="Beta")
-st.plotly_chart(fig_beta, use_container_width=True)
 
-# --- Rolling Volatility and Sharpe ---
-col1, col2 = st.columns(2)
+def _tight(fig, height=260):
+    fig.update_layout(
+        height=height,
+        margin=dict(t=24, b=24, l=8, r=8),
+        legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
+        font=dict(size=10),
+    )
+    return fig
 
-with col1:
-    st.subheader("Rolling Annualized Volatility (%)")
+
+# --- Row 1: Beta + Vol + Sharpe (3 cols) ---
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.subheader("Rolling 20-D Beta vs SPY")
+    fig_beta = px.line(filtered, x="price_date", y="rolling_beta", color="symbol")
+    fig_beta.add_hline(y=1.0, line_dash="dash", line_color="gray",
+                       annotation_text="mkt (1.0)")
+    fig_beta.update_layout(xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(_tight(fig_beta), use_container_width=True)
+
+with c2:
+    st.subheader("Annualised Volatility (%)")
     fig_vol = px.line(filtered, x="price_date", y="rolling_vol_ann_pct", color="symbol")
-    fig_vol.update_layout(height=300, margin=dict(t=20), xaxis_title="Date", yaxis_title="Vol %")
-    st.plotly_chart(fig_vol, use_container_width=True)
+    fig_vol.update_layout(xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(_tight(fig_vol), use_container_width=True)
 
-with col2:
-    st.subheader("Rolling Sharpe Ratio")
+with c3:
+    st.subheader("Rolling Sharpe")
     fig_sharpe = px.line(filtered, x="price_date", y="rolling_sharpe", color="symbol")
     fig_sharpe.add_hline(y=0, line_dash="dash", line_color="gray")
-    fig_sharpe.update_layout(height=300, margin=dict(t=20), xaxis_title="Date", yaxis_title="Sharpe")
-    st.plotly_chart(fig_sharpe, use_container_width=True)
+    fig_sharpe.update_layout(xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(_tight(fig_sharpe), use_container_width=True)
 
-# --- Beta vs Volatility Scatter (latest) ---
-st.subheader("Beta vs Volatility (Latest)")
-latest_date = risk_df["price_date"].max()
-latest_risk = risk_df[risk_df["price_date"] == latest_date].copy()
+# --- Row 2: Beta vs Vol scatter (1/2) + Correlation heatmap (1/2) ---
+c4, c5 = st.columns([1, 1])
 
-fig_scatter = px.scatter(
-    latest_risk, x="rolling_beta", y="rolling_vol_ann_pct",
-    text="symbol", size="rolling_vol_ann_pct",
-    color="rolling_sharpe", color_continuous_scale="RdYlGn",
-    hover_data={"rolling_sharpe": ":.2f", "rolling_correlation": ":.2f"},
-)
-fig_scatter.update_traces(textposition="top center", textfont_size=9)
-fig_scatter.update_layout(
-    height=450, margin=dict(t=20),
-    xaxis_title="Rolling Beta", yaxis_title="Rolling Vol (ann. %)",
-)
-st.plotly_chart(fig_scatter, use_container_width=True)
-
-# --- Correlation Heatmap ---
-st.subheader("Trailing 20-Day Correlation Matrix")
-corr_df = load_correlations()
-
-if not corr_df.empty:
-    # Build symmetric matrix
-    mirror = corr_df.rename(columns={"symbol_a": "symbol_b", "symbol_b": "symbol_a"})
-    full = pd.concat([corr_df, mirror]).drop_duplicates(subset=["symbol_a", "symbol_b"])
-    pivot = full.pivot(index="symbol_a", columns="symbol_b", values="correlation").fillna(1.0)
-
-    # sort by mean correlation for visual clustering
-    order = pivot.mean().sort_values(ascending=False).index
-    pivot = pivot.loc[order, order]
-
-    fig_corr = px.imshow(
-        pivot, color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
-        aspect="auto",
+with c4:
+    st.subheader("Beta vs Vol — Latest")
+    latest_date = risk_df["price_date"].max()
+    latest_risk = risk_df[risk_df["price_date"] == latest_date].copy()
+    fig_scatter = px.scatter(
+        latest_risk, x="rolling_beta", y="rolling_vol_ann_pct",
+        text="symbol", size="rolling_vol_ann_pct",
+        color="rolling_sharpe", color_continuous_scale="RdYlGn",
+        hover_data={"rolling_sharpe": ":.2f", "rolling_correlation": ":.2f"},
     )
-    fig_corr.update_layout(height=600, margin=dict(t=20))
-    st.plotly_chart(fig_corr, use_container_width=True)
-else:
-    st.info("Correlation matrix not yet computed.")
+    fig_scatter.update_traces(textposition="top center", textfont_size=8)
+    fig_scatter.update_layout(xaxis_title="β", yaxis_title="Vol (ann %)")
+    st.plotly_chart(_tight(fig_scatter, height=420), use_container_width=True)
 
-# --- Volume Profile ---
-st.subheader("Intraday Volume Profile")
+with c5:
+    corr_df = load_correlations()
+    if not corr_df.empty:
+        st.subheader("20-D Correlation Matrix")
+        mirror = corr_df.rename(columns={"symbol_a": "symbol_b", "symbol_b": "symbol_a"})
+        full = pd.concat([corr_df, mirror]).drop_duplicates(subset=["symbol_a", "symbol_b"])
+        pivot = full.pivot(index="symbol_a", columns="symbol_b", values="correlation").fillna(1.0)
+        order = pivot.mean().sort_values(ascending=False).index
+        pivot = pivot.loc[order, order]
+        fig_corr = px.imshow(pivot, color_continuous_scale="RdBu_r",
+                             zmin=-1, zmax=1, aspect="auto")
+        st.plotly_chart(_tight(fig_corr, height=420), use_container_width=True)
+    else:
+        st.info("Correlation matrix not yet computed.")
+
+# --- Row 3: Volume Profile (full width but compact) ---
 vp_df = load_volume_profile()
-
 if not vp_df.empty:
-    vp_symbol = st.selectbox("Symbol for Volume Profile", symbols, index=0)
-    vp_filtered = vp_df[vp_df["symbol"] == vp_symbol]
-
-    fig_vp = go.Figure()
-    fig_vp.add_trace(go.Bar(
-        x=vp_filtered["bucket_id"].astype(str),
-        y=vp_filtered["avg_volume_per_bucket"],
-        marker_color=vp_filtered["relative_volume"].apply(
-            lambda x: "#EF553B" if x > 1.5 else ("#636EFA" if x > 0.8 else "#B6B6B6")
-        ),
-        hovertemplate="Bucket: %{x}<br>Avg Volume: %{y:,.0f}<extra></extra>",
-    ))
-    fig_vp.update_layout(
-        height=350, margin=dict(t=20),
-        xaxis_title="Time of Day (HHMM)",
-        yaxis_title="Average Volume per 30-min Bucket",
-    )
-    st.plotly_chart(fig_vp, use_container_width=True)
+    c6, c7 = st.columns([1, 4])
+    with c6:
+        st.subheader("Intraday Volume Profile")
+        vp_symbol = st.selectbox("Symbol", symbols, index=0, label_visibility="collapsed")
+    with c7:
+        vp_filtered = vp_df[vp_df["symbol"] == vp_symbol]
+        fig_vp = go.Figure()
+        fig_vp.add_trace(go.Bar(
+            x=vp_filtered["bucket_id"].astype(str),
+            y=vp_filtered["avg_volume_per_bucket"],
+            marker_color=vp_filtered["relative_volume"].apply(
+                lambda x: "#EF553B" if x > 1.5 else ("#636EFA" if x > 0.8 else "#B6B6B6")
+            ),
+            hovertemplate="Bucket: %{x}<br>Avg Volume: %{y:,.0f}<extra></extra>",
+        ))
+        fig_vp.update_layout(xaxis_title="time of day (HHMM)", yaxis_title=None)
+        st.plotly_chart(_tight(fig_vp, height=240), use_container_width=True)
