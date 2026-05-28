@@ -337,13 +337,25 @@ notebooks/                 Databricks notebooks (bronze → silver → gold → 
 scripts/                   Batch bridge, quality checks, topic provisioning, replay
 warehouse/                 dbt project (30 models: staging → intermediate → marts)
 dashboard/                 Streamlit app (8 pages over Snowflake)
+dags/                      Airflow DAG for the EOD chain (see dags/README.md)
+workflows/                 Databricks Workflow YAML for the intraday streaming layer
 monitoring/                Prometheus + Grafana Docker Compose stack
 tests/                     46 unit tests
 ```
 
+## Orchestration
+
+| Layer | Scheduler | Cadence |
+|---|---|---|
+| Producer (Kafka WebSocket) | Windows Task Scheduler | Start 09:25 ET, stop 16:05 ET, weekdays |
+| Bronze → Silver → Gold → Snowflake sync | Databricks Workflows ([`workflows/pipeline_workflow.yml`](./workflows/pipeline_workflow.yml)) | Every 30 min, 09:30–16:30 ET |
+| EOD: BQ bridge → dbt build | Airflow DAG ([`dags/eod_pipeline.py`](./dags/eod_pipeline.py)) — local equivalent in `scripts/run_eod.ps1` | 18:00 ET, weekdays |
+
+The Airflow DAG models the cross-pipeline dependency explicitly: a BigQuery sensor waits for the companion batch pipeline to publish today's row before the bridge fires, replacing the implicit time-buffer pattern. See [`dags/README.md`](./dags/README.md) for deployment options.
+
 ## Tech Stack
 
-`Python 3.11` &middot; `Polygon.io WebSocket` &middot; `Confluent Kafka` &middot; `Apache Spark Structured Streaming` &middot; `Databricks (Unity Catalog)` &middot; `Delta Lake` &middot; `Snowflake` &middot; `dbt` &middot; `BigQuery` &middot; `Streamlit` &middot; `Plotly` &middot; `Prometheus` &middot; `Grafana` &middot; `Docker Compose` &middot; `GitHub Actions`
+`Python 3.11` &middot; `Polygon.io WebSocket` &middot; `Confluent Kafka` &middot; `Apache Spark Structured Streaming` &middot; `Databricks (Unity Catalog)` &middot; `Delta Lake` &middot; `Snowflake` &middot; `dbt` &middot; `BigQuery` &middot; `Apache Airflow` &middot; `Streamlit` &middot; `Plotly` &middot; `Prometheus` &middot; `Grafana` &middot; `Docker Compose` &middot; `GitHub Actions`
 
 ## Batch Pipeline Integration
 
