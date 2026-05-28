@@ -153,15 +153,29 @@ _COMPACT_CSS = """
         border-left: 3px solid #1f6feb !important;
     }
 
-    /* Text colors — broad selectors to catch all Streamlit title variants */
-    h1, h2, h3, h4, h5, h6 { color: #e6edf3 !important; }
-    [data-testid="stHeading"] * { color: #e6edf3 !important; }
-    .stTitle, .stHeader, .stSubheader { color: #e6edf3 !important; }
+    /* Text colors — aggressive selectors for all Streamlit text elements */
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stHeading"],
+    [data-testid="stHeading"] *,
     [data-testid="stMarkdownContainer"] h1,
     [data-testid="stMarkdownContainer"] h2,
-    [data-testid="stMarkdownContainer"] h3 { color: #e6edf3 !important; }
-    p, span, label, .stMarkdown { color: #c9d1d9 !important; }
-    [data-testid="stWidgetLabel"] * { color: #c9d1d9 !important; }
+    [data-testid="stMarkdownContainer"] h3,
+    .stTitle, .stHeader, .stSubheader,
+    .block-container h1,
+    .block-container h2,
+    .block-container h3,
+    .element-container h1,
+    .element-container h2,
+    .element-container h3 { color: #e6edf3 !important; }
+
+    p, span, label, div,
+    .stMarkdown, .stMarkdown *,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] span,
+    [data-testid="stWidgetLabel"] *,
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] * { color: #c9d1d9 !important; }
 
     /* Tighter headers */
     h1 { padding: 0 !important; margin: 0 0 0.4rem 0 !important; font-size: 1.6rem !important; }

@@ -77,10 +77,33 @@ def _tight(fig, height=290):
 fs = load_factor_scores()
 movers = val.dropna(subset=["close_delta_pct"]).copy()
 
-# --- Row 1: movers + factor pie + P/E vs ROE scatter (3 cols) ---
-c1, c2, c3 = st.columns([1.2, 0.8, 1.4])
+# --- Row 1: factor breakdown + movers + P/E vs ROE scatter (3 cols) ---
+c1, c2, c3 = st.columns([0.8, 1.2, 1.4])
 
 with c1:
+    st.subheader("Factor Classification")
+    if not fs.empty:
+        class_counts = (
+            fs["factor_classification"].value_counts()
+            .reset_index()
+            .rename(columns={"index": "Classification", "factor_classification": "Classification",
+                              "count": "Count"})
+        )
+        if "Count" not in class_counts.columns:
+            class_counts.columns = ["Classification", "Count"]
+        fig_class = px.bar(
+            class_counts, x="Count", y="Classification",
+            orientation="h",
+            color="Classification",
+            color_discrete_map={"VALUE": "#58a6ff", "GROWTH": "#f85149",
+                                "QUALITY": "#3fb950", "BLEND": "#8b949e"},
+        )
+        fig_class.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+        )
+        st.plotly_chart(_tight(fig_class), use_container_width=True)
+
+with c2:
     st.subheader("Top Movers Since Batch Snapshot")
     if not movers.empty:
         movers["abs_delta"] = movers["close_delta_pct"].abs()
@@ -95,20 +118,6 @@ with c1:
         st.plotly_chart(_tight(fig_movers), use_container_width=True)
     else:
         st.info("No live pricing.")
-
-with c2:
-    st.subheader("Factor Classification")
-    if not fs.empty:
-        class_counts = fs["factor_classification"].value_counts().reset_index()
-        class_counts.columns = ["Classification", "Count"]
-        fig_class = px.pie(
-            class_counts, names="Classification", values="Count",
-            color="Classification",
-            color_discrete_map={"VALUE": "#636EFA", "GROWTH": "#EF553B",
-                                "QUALITY": "#00CC96", "BLEND": "#B6B6B6"},
-            hole=0.5,
-        )
-        st.plotly_chart(_tight(fig_class), use_container_width=True)
 
 with c3:
     st.subheader("Valuation Quadrant — P/E vs ROE")
