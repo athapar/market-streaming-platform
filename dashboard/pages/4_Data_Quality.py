@@ -1,13 +1,13 @@
-"""Data Quality — completeness, validity, anomaly detection."""
+﻿"""Data Quality — completeness, validity, anomaly detection."""
 import streamlit as st
 import plotly.express as px
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import CYAN, GREEN, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Data Quality", layout="wide")
 compact_layout()
-st.title("Data Quality")
+heading("Data Quality")
 
 
 @st.cache_data(ttl=300)
@@ -75,7 +75,7 @@ def _tight(fig, height=250):
 c1, c2, c3 = st.columns([1, 1, 1])
 
 with c1:
-    st.subheader("Quality Score Distribution")
+    heading("Quality Score Distribution", 3)
     fig_hist = px.histogram(day_dq, x="quality_score", nbins=20,
                             color_discrete_sequence=["#636EFA"])
     fig_hist.update_layout(xaxis_title=None, yaxis_title=None)
@@ -83,7 +83,7 @@ with c1:
 
 with c2:
     recon = load_recon()
-    st.subheader("Recon Status Stack")
+    heading("Recon Status Stack", 3)
     if not recon.empty:
         fig_recon = px.bar(
             recon, x="price_date", y="cnt", color="recon_status",
@@ -100,7 +100,7 @@ with c2:
         st.info("Recon mart empty.")
 
 with c3:
-    st.subheader("Lowest Quality (top 10)")
+    heading("Lowest Quality (top 10)", 3)
     worst = day_dq.nsmallest(10, "quality_score")[
         ["symbol", "quality_score", "completeness_pct", "validity_pct"]
     ].reset_index(drop=True)
@@ -108,7 +108,7 @@ with c3:
     st.dataframe(worst, use_container_width=True, hide_index=True, height=280)
 
 # --- Row 2: completeness bars (full width since long list) ---
-st.subheader("Completeness by Symbol")
+heading("Completeness by Symbol", 3)
 sorted_dq = day_dq.sort_values("completeness_pct")
 fig_comp = px.bar(
     sorted_dq, x="completeness_pct", y="symbol", orientation="h",
@@ -125,7 +125,7 @@ st.plotly_chart(fig_comp, use_container_width=True)
 # --- Row 3: unusual activity table ---
 unusual = load_unusual()
 if not unusual.empty:
-    st.subheader("Recent Unusual Activity (top 100)")
+    heading("Recent Unusual Activity (top 100)", 3)
     u = unusual.copy()
     u["daily_simple_return"] = (u["daily_simple_return"] * 100).round(2)
     u.columns = ["Sym", "Date", "Class", "Return %",

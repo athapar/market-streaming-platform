@@ -1,14 +1,14 @@
-"""Microstructure Analytics — spread, trade flow, order imbalance."""
+﻿"""Microstructure Analytics — spread, trade flow, order imbalance."""
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import CYAN, RED, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Microstructure", layout="wide")
 compact_layout()
-st.title("Microstructure Analytics")
+heading("Microstructure Analytics")
 
 
 @st.cache_data(ttl=300)
@@ -81,7 +81,7 @@ def _tight(fig, height=250):
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.subheader("Bid-Ask Spread by Symbol")
+    heading("Bid-Ask Spread by Symbol", 3)
     if not spread_df.empty:
         ss = spread_df.sort_values("avg_spread_bps")
         fig_sp = px.bar(ss, x="symbol", y="avg_spread_bps",
@@ -92,7 +92,7 @@ with c1:
         st.info("No quote data for this date.")
 
 with c2:
-    st.subheader("Trade Imbalance (tick rule)")
+    heading("Trade Imbalance (tick rule)", 3)
     imb_df = day_df.sort_values("trade_imbalance")
     fig_imb = px.bar(imb_df, x="symbol", y="trade_imbalance",
                      color="trade_imbalance", color_continuous_scale="RdYlGn",
@@ -101,7 +101,7 @@ with c2:
     st.plotly_chart(_tight(fig_imb), use_container_width=True)
 
 with c3:
-    st.subheader("Block Trades ($)")
+    heading("Block Trades ($)", 3)
     block_df = day_df[day_df["block_trade_count"] > 0].sort_values(
         "block_dollar_volume", ascending=False).head(20)
     if not block_df.empty:
@@ -117,7 +117,7 @@ c4, c5 = st.columns(2)
 
 with c4:
     sp_df = load_spread_profile()
-    st.subheader("Intraday Spread U-Curve")
+    heading("Intraday Spread U-Curve", 3)
     if not sp_df.empty:
         sp_symbols = sorted(sp_df["symbol"].unique())
         sel_col, _ = st.columns([1, 3])
@@ -141,7 +141,7 @@ with c4:
 
 with c5:
     ts_df = load_trade_sizes()
-    st.subheader("Trade Size Distribution ($-volume)")
+    heading("Trade Size Distribution ($-volume)", 3)
     if not ts_df.empty:
         ts_day = ts_df[ts_df["trade_date"] == selected_date]
         if not ts_day.empty:

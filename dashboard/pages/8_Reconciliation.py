@@ -1,14 +1,14 @@
-"""Reconciliation — streaming vs batch agreement on prices and returns."""
+﻿"""Reconciliation — streaming vs batch agreement on prices and returns."""
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Reconciliation", layout="wide")
 compact_layout()
-st.title("Streaming vs Batch Reconciliation")
+heading("Streaming vs Batch Reconciliation")
 st.caption(
     "Two independent reconciliations joined on `(composite_figi, price_date)`. "
     "`PARTIAL_SESSION` / `RETURN_MISMATCH` typically reflect a sub-full-day "
@@ -97,7 +97,7 @@ def _tight(fig, height=250):
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.subheader("Daily Price Recon Status")
+    heading("Daily Price Recon Status", 3)
     if not pdf.empty:
         p_agg = (pdf.groupby(["price_date", "recon_status"])
                     .size().reset_index(name="cnt"))
@@ -107,7 +107,7 @@ with c1:
         st.plotly_chart(_tight(fig_p), use_container_width=True)
 
 with c2:
-    st.subheader("Daily Return Recon Status")
+    heading("Daily Return Recon Status", 3)
     if not rdf.empty:
         r_agg = (rdf.groupby(["price_date", "recon_status"])
                     .size().reset_index(name="cnt"))
@@ -117,7 +117,7 @@ with c2:
         st.plotly_chart(_tight(fig_r), use_container_width=True)
 
 with c3:
-    st.subheader(f"Δ Close % Distribution ({selected_date})")
+    heading(f"Δ Close % Distribution ({selected_date})", 3)
     if not day_p.empty:
         full = day_p.dropna(subset=["close_pct_delta"])
         if not full.empty:
@@ -141,7 +141,7 @@ with c3:
 c4, c5 = st.columns(2)
 
 with c4:
-    st.subheader(f"Streaming vs Batch Daily Return ({selected_date})")
+    heading(f"Streaming vs Batch Daily Return ({selected_date})", 3)
     if not day_r.empty:
         both = day_r.dropna(subset=["streaming_return", "batch_return"])
         if not both.empty:
@@ -167,7 +167,7 @@ with c4:
             st.plotly_chart(_tight(fig_scatter, height=380), use_container_width=True)
 
 with c5:
-    st.subheader("Mismatches Requiring Attention")
+    heading("Mismatches Requiring Attention", 3)
     mismatch_p = pdf[~pdf["recon_status"].isin(["OK", "PARTIAL_SESSION"])].copy()
     mismatch_r = rdf[~rdf["recon_status"].isin(["OK"])].copy()
 

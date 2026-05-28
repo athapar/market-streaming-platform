@@ -1,13 +1,13 @@
-"""Market Overview — returns heatmap, top movers, volume leaders."""
+﻿"""Market Overview — returns heatmap, top movers, volume leaders."""
 import streamlit as st
 import plotly.express as px
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import dark_chart  # noqa: F401 — registers dark template on import
 
 st.set_page_config(page_title="Market Overview", layout="wide")
 compact_layout()
-st.title("Market Overview")
+heading("Market Overview")
 
 
 @st.cache_data(ttl=300)
@@ -58,7 +58,7 @@ def _tight(fig, height=270):
 c_tree, c_vol = st.columns([2, 1])
 
 with c_tree:
-    st.subheader("Daily Returns Treemap (sized by $-volume)")
+    heading("Daily Returns Treemap (sized by $-volume)", 3)
     tree_df = day_df[day_df["total_dollar_volume"].notna()].copy()
     tree_df["abs_dv"] = tree_df["total_dollar_volume"].abs().clip(lower=1)
     fig_tree = px.treemap(
@@ -70,7 +70,7 @@ with c_tree:
     st.plotly_chart(_tight(fig_tree, height=420), use_container_width=True)
 
 with c_vol:
-    st.subheader("Top 15 by $-Volume")
+    heading("Top 15 by $-Volume", 3)
     vol_df = day_df.nlargest(15, "total_dollar_volume")
     fig_vol = px.bar(
         vol_df, y="symbol", x="total_dollar_volume", orientation="h",
@@ -85,21 +85,21 @@ with c_vol:
 g, l, u = st.columns(3)
 
 with g:
-    st.subheader("Top Gainers")
+    heading("Top Gainers", 3)
     tg = day_df.nlargest(10, "return_pct")[
         ["symbol", "return_pct", "close_price"]].reset_index(drop=True)
     tg.columns = ["Sym", "Return %", "Close"]
     st.dataframe(tg, use_container_width=True, hide_index=True, height=370)
 
 with l:
-    st.subheader("Top Losers")
+    heading("Top Losers", 3)
     tl = day_df.nsmallest(10, "return_pct")[
         ["symbol", "return_pct", "close_price"]].reset_index(drop=True)
     tl.columns = ["Sym", "Return %", "Close"]
     st.dataframe(tl, use_container_width=True, hide_index=True, height=370)
 
 with u:
-    st.subheader("Unusual Activity (|Z| > 2)")
+    heading("Unusual Activity (|Z| > 2)", 3)
     unusual = day_df[day_df["volume_zscore"].abs() > 2.0][
         ["symbol", "return_pct", "volume_zscore"]
     ].sort_values("volume_zscore", ascending=False).reset_index(drop=True)

@@ -1,14 +1,14 @@
-"""Pipeline Health — throughput, latency, coverage over time."""
+﻿"""Pipeline Health — throughput, latency, coverage over time."""
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import CYAN, GREEN, ORANGE, dark_chart
 
 st.set_page_config(page_title="Pipeline Health", layout="wide")
 compact_layout()
-st.title("Pipeline Health")
+heading("Pipeline Health")
 
 
 @st.cache_data(ttl=300)
@@ -64,7 +64,7 @@ def _tight(fig, height=225):
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.subheader("Processing Latency (s)")
+    heading("Processing Latency (s)", 3)
     fig_latency = go.Figure()
     for col, name, dash in [
         ("p50_latency_s", "p50", "solid"),
@@ -80,7 +80,7 @@ with c1:
     st.plotly_chart(_tight(fig_latency), use_container_width=True)
 
 with c2:
-    st.subheader("Session Coverage (%)")
+    heading("Session Coverage (%)", 3)
     fig_cov = px.line(df, x="event_date", y="coverage_pct", markers=True)
     fig_cov.update_layout(yaxis_title="%", xaxis_title=None)
     fig_cov.add_hline(y=100, line_dash="dash", line_color=GREEN,
@@ -88,7 +88,7 @@ with c2:
     st.plotly_chart(_tight(fig_cov), use_container_width=True)
 
 with c3:
-    st.subheader("Dollar Volume (USD)")
+    heading("Dollar Volume (USD)", 3)
     fig_dv = px.area(df, x="event_date", y="total_dollar_volume",
                      color_discrete_sequence=[CYAN])
     fig_dv.update_layout(yaxis_title=None, xaxis_title=None)
@@ -98,7 +98,7 @@ with c3:
 c4, c5 = st.columns(2)
 
 with c4:
-    st.subheader("Daily Bar Count")
+    heading("Daily Bar Count", 3)
     fig_bars = px.bar(df, x="event_date", y="total_bars",
                       color_discrete_sequence=[CYAN])
     fig_bars.update_layout(yaxis_title="bars", xaxis_title=None)
@@ -107,7 +107,7 @@ with c4:
 with c5:
     dq = load_quality_summary()
     if not dq.empty:
-        st.subheader("Data Quality Score (daily avg)")
+        heading("Data Quality Score (daily avg)", 3)
         fig_dq = px.line(dq, x="event_date", y="avg_quality_score", markers=True,
                          color_discrete_sequence=[GREEN])
         fig_dq.update_layout(yaxis_title="score (0-100)", xaxis_title=None)

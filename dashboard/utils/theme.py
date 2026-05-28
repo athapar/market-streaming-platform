@@ -41,7 +41,7 @@ DARK_TEMPLATE = go.layout.Template(
             tickfont=dict(color=TEXT_DIM),
         ),
         legend=dict(
-            bgcolor="rgba(0,0,0,0)",
+            bgcolor="rgba(1,1,1,1)",
             font=dict(color=TEXT_DIM),
         ),
         colorway=ACCENT_SEQUENCE,

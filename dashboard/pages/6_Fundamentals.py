@@ -1,13 +1,13 @@
-"""Fundamentals — live-priced valuation ratios + factor scoring."""
+﻿"""Fundamentals — live-priced valuation ratios + factor scoring."""
 import streamlit as st
 import plotly.express as px
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Fundamentals", layout="wide")
 compact_layout()
-st.title("Fundamentals")
+heading("Fundamentals")
 st.caption(
     "Batch TTM fundamentals × live streaming close. Price-derived ratios "
     "(P/E, P/B, P/S, market cap) rescaled by `live_close / batch_close`; "
@@ -81,7 +81,7 @@ movers = val.dropna(subset=["close_delta_pct"]).copy()
 c1, c2, c3 = st.columns([0.8, 1.2, 1.4])
 
 with c1:
-    st.subheader("Factor Classification")
+    heading("Factor Classification", 3)
     if not fs.empty:
         class_counts = (
             fs["factor_classification"].value_counts()
@@ -104,7 +104,7 @@ with c1:
         st.plotly_chart(_tight(fig_class), use_container_width=True)
 
 with c2:
-    st.subheader("Top Movers Since Batch Snapshot")
+    heading("Top Movers Since Batch Snapshot", 3)
     if not movers.empty:
         movers["abs_delta"] = movers["close_delta_pct"].abs()
         top = movers.nlargest(20, "abs_delta").sort_values("close_delta_pct", ascending=False)
@@ -120,7 +120,7 @@ with c2:
         st.info("No live pricing.")
 
 with c3:
-    st.subheader("Valuation Quadrant — P/E vs ROE")
+    heading("Valuation Quadrant — P/E vs ROE", 3)
     plot_df = val.dropna(subset=["live_pe_ratio", "roe", "live_market_cap"]).copy()
     plot_df = plot_df[(plot_df["live_pe_ratio"] > 0) & (plot_df["live_pe_ratio"] < 200)]
     if not plot_df.empty:
@@ -139,7 +139,7 @@ with c3:
 c4, c5 = st.columns(2)
 
 with c4:
-    st.subheader("Value vs Growth (size = quality)")
+    heading("Value vs Growth (size = quality)", 3)
     if not fs.empty:
         fig_vg = px.scatter(
             fs, x="value_score", y="growth_score",
@@ -156,7 +156,7 @@ with c4:
         st.plotly_chart(_tight(fig_vg, height=340), use_container_width=True)
 
 with c5:
-    st.subheader("Sector Mix by Market Cap")
+    heading("Sector Mix by Market Cap", 3)
     if not fs.empty:
         sec_df = fs.dropna(subset=["sic_description", "market_cap"])
         if not sec_df.empty:

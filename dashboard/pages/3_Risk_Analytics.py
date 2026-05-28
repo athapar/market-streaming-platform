@@ -1,15 +1,15 @@
-"""Risk Analytics — rolling beta, volatility, Sharpe, correlation matrix."""
+﻿"""Risk Analytics — rolling beta, volatility, Sharpe, correlation matrix."""
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import CYAN, GRAY, BG_CARD, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Risk Analytics", layout="wide")
 compact_layout()
-st.title("Risk Analytics")
+heading("Risk Analytics")
 
 
 @st.cache_data(ttl=300)
@@ -72,7 +72,7 @@ def _tight(fig, height=235):
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.subheader("Rolling 20-D Beta vs SPY")
+    heading("Rolling 20-D Beta vs SPY", 3)
     fig_beta = px.line(filtered, x="price_date", y="rolling_beta", color="symbol")
     fig_beta.add_hline(y=1.0, line_dash="dash", line_color="gray",
                        annotation_text="mkt (1.0)")
@@ -80,13 +80,13 @@ with c1:
     st.plotly_chart(_tight(fig_beta), use_container_width=True)
 
 with c2:
-    st.subheader("Annualised Volatility (%)")
+    heading("Annualised Volatility (%)", 3)
     fig_vol = px.line(filtered, x="price_date", y="rolling_vol_ann_pct", color="symbol")
     fig_vol.update_layout(xaxis_title=None, yaxis_title=None)
     st.plotly_chart(_tight(fig_vol), use_container_width=True)
 
 with c3:
-    st.subheader("Rolling Sharpe")
+    heading("Rolling Sharpe", 3)
     fig_sharpe = px.line(filtered, x="price_date", y="rolling_sharpe", color="symbol")
     fig_sharpe.add_hline(y=0, line_dash="dash", line_color="gray")
     fig_sharpe.update_layout(xaxis_title=None, yaxis_title=None)
@@ -96,7 +96,7 @@ with c3:
 c4, c5 = st.columns([1, 1])
 
 with c4:
-    st.subheader("Beta vs Vol — Latest")
+    heading("Beta vs Vol — Latest", 3)
     latest_date = risk_df["price_date"].max()
     latest_risk = risk_df[risk_df["price_date"] == latest_date].copy()
     fig_scatter = px.scatter(
@@ -106,13 +106,13 @@ with c4:
         hover_data={"rolling_sharpe": ":.2f", "rolling_correlation": ":.2f"},
     )
     fig_scatter.update_traces(textposition="top center", textfont_size=8)
-    fig_scatter.update_layout(xaxis_title="β", yaxis_title="Vol (ann %)")
+    fig_scatter.update_layout(xaxis_title="Î²", yaxis_title="Vol (ann %)")
     st.plotly_chart(_tight(fig_scatter, height=420), use_container_width=True)
 
 with c5:
     corr_df = load_correlations()
     if not corr_df.empty:
-        st.subheader("20-D Correlation Matrix")
+        heading("20-D Correlation Matrix", 3)
         mirror = corr_df.rename(columns={"symbol_a": "symbol_b", "symbol_b": "symbol_a"})
         full = pd.concat([corr_df, mirror]).drop_duplicates(subset=["symbol_a", "symbol_b"])
         pivot = full.pivot(index="symbol_a", columns="symbol_b", values="correlation").fillna(1.0)
@@ -129,7 +129,7 @@ vp_df = load_volume_profile()
 if not vp_df.empty:
     c6, c7 = st.columns([1, 4])
     with c6:
-        st.subheader("Intraday Volume Profile")
+        heading("Intraday Volume Profile", 3)
         vp_symbol = st.selectbox("Symbol", symbols, index=0, label_visibility="collapsed")
     with c7:
         vp_filtered = vp_df[vp_df["symbol"] == vp_symbol]

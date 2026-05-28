@@ -1,14 +1,14 @@
-"""Dividends — TTM yield time series and current-yield ranking."""
+﻿"""Dividends — TTM yield time series and current-yield ranking."""
 import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from utils.snowflake_conn import compact_layout, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query
 from utils.theme import dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Dividends", layout="wide")
 compact_layout()
-st.title("Dividends & Yield")
+heading("Dividends & Yield")
 st.caption(
     "TTM dividend yield per ex-dividend event. `live_yield_estimate` on the "
     "latest event per security uses the most recent streaming close."
@@ -63,7 +63,7 @@ def _tight(fig, height=270):
 c1, c2 = st.columns(2)
 
 with c1:
-    st.subheader("Top Yielders (latest ex-div events)")
+    heading("Top Yielders (latest ex-div events)", 3)
     top_y = paying.nlargest(20, "ttm_yield_pct")
     fig_top = px.bar(
         top_y, x="ticker", y="ttm_yield_pct",
@@ -78,7 +78,7 @@ with c2:
     delta_df = paying.dropna(subset=["live_yield_pct"]).copy()
     delta_df["yield_delta_bps"] = (delta_df["live_yield_pct"] - delta_df["ttm_yield_pct"]) * 100
     if not delta_df.empty:
-        st.subheader("Live vs Ex-Date Yield Δ (bps)")
+        heading("Live vs Ex-Date Yield Δ (bps)", 3)
         fig_delta = px.bar(
             delta_df.sort_values("yield_delta_bps"),
             x="ticker", y="yield_delta_bps",
@@ -93,7 +93,7 @@ with c2:
 c3, c4 = st.columns(2)
 
 with c3:
-    st.subheader("Avg TTM Yield by Sector (top 15)")
+    heading("Avg TTM Yield by Sector (top 15)", 3)
     sec_df = latest.dropna(subset=["sic_description"])
     if not sec_df.empty:
         sec_summary = (
@@ -118,7 +118,7 @@ with c3:
         st.plotly_chart(_tight(fig_sec, height=340), use_container_width=True)
 
 with c4:
-    st.subheader("Yield Trend Over Time")
+    heading("Yield Trend Over Time", 3)
     symbols = sorted(df["ticker"].unique())
     default_pick = [s for s in ["MSFT", "JNJ", "PG", "T", "VZ", "XOM"] if s in symbols][:4]
     selected = st.multiselect("Symbols", symbols, default=default_pick or symbols[:4],

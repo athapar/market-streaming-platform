@@ -136,9 +136,17 @@ _COMPACT_CSS = """
         background-color: #0a0e17 !important;
     }
     .block-container {
-        padding: 0.5rem 1rem 1rem 1rem !important;
+        /* top padding must clear Streamlit's fixed header (~3rem tall).
+           Earlier we used 0.5rem which hid the page title behind the toolbar. */
+        padding: 3rem 1rem 1rem 1rem !important;
         max-width: 100% !important;
         background-color: #0a0e17 !important;
+    }
+
+    /* Also tighten the header itself so the gap above content doesn't grow */
+    [data-testid="stHeader"] {
+        background-color: rgba(10, 14, 23, 0.6) !important;
+        backdrop-filter: blur(8px);
     }
 
     /* Sidebar */
@@ -153,34 +161,60 @@ _COMPACT_CSS = """
         border-left: 3px solid #1f6feb !important;
     }
 
-    /* Text colors — aggressive selectors for all Streamlit text elements */
-    h1, h2, h3, h4, h5, h6,
-    [data-testid="stHeading"],
-    [data-testid="stHeading"] *,
-    [data-testid="stMarkdownContainer"] h1,
-    [data-testid="stMarkdownContainer"] h2,
-    [data-testid="stMarkdownContainer"] h3,
-    .stTitle, .stHeader, .stSubheader,
-    .block-container h1,
-    .block-container h2,
-    .block-container h3,
-    .element-container h1,
-    .element-container h2,
-    .element-container h3 { color: #e6edf3 !important; }
+    /*
+     * config.toml sets textColor=#e6edf3 (bright white) — Streamlit applies
+     * this as the default to ALL text including headings. We only override
+     * DOWNWARD: dim body text to #c9d1d9, dim captions/labels further.
+     * Headings keep the config.toml default without any CSS interference.
+     *
+     * IMPORTANT: do NOT set color on generic selectors like p, span, div
+     * because Streamlit wraps heading text inside <p> tags.
+     */
 
-    p, span, label, div,
-    .stMarkdown, .stMarkdown *,
-    [data-testid="stMarkdownContainer"],
-    [data-testid="stMarkdownContainer"] p,
-    [data-testid="stMarkdownContainer"] span,
-    [data-testid="stWidgetLabel"] *,
-    [data-testid="stCaptionContainer"],
-    [data-testid="stCaptionContainer"] * { color: #c9d1d9 !important; }
+    /* Dim body text in non-heading contexts only */
+    [data-testid="stWidgetLabel"] * { color: #8b949e !important; }
+    [data-testid="stCaptionContainer"] * { color: #8b949e !important; }
 
-    /* Tighter headers */
+    /* Tighter header spacing */
     h1 { padding: 0 !important; margin: 0 0 0.4rem 0 !important; font-size: 1.6rem !important; }
     h2 { padding: 0 !important; margin: 0.6rem 0 0.2rem 0 !important; font-size: 1.15rem !important; }
     h3 { padding: 0 !important; margin: 0.5rem 0 0.2rem 0 !important; font-size: 1.0rem  !important; }
+
+    /* Custom heading classes — used by the heading() helper.
+       Selector ratchets up specificity (html body + descendant chain)
+       to beat any Streamlit emotion class that might set color.
+       The `*` descendant rule covers cases where the text is wrapped
+       in nested spans by markdown processing. */
+    html body div.ms-heading-1,
+    html body div.ms-heading-1 *,
+    [data-testid="stMarkdownContainer"] div.ms-heading-1,
+    [data-testid="stMarkdownContainer"] div.ms-heading-1 * {
+        color: #e6edf3 !important;
+        font-size: 1.6rem !important;
+        font-weight: 600 !important;
+        margin: 0 0 0.4rem 0 !important;
+        line-height: 1.2 !important;
+    }
+    html body div.ms-heading-2,
+    html body div.ms-heading-2 *,
+    [data-testid="stMarkdownContainer"] div.ms-heading-2,
+    [data-testid="stMarkdownContainer"] div.ms-heading-2 * {
+        color: #e6edf3 !important;
+        font-size: 1.25rem !important;
+        font-weight: 600 !important;
+        margin: 0.6rem 0 0.2rem 0 !important;
+        line-height: 1.2 !important;
+    }
+    html body div.ms-heading-3,
+    html body div.ms-heading-3 *,
+    [data-testid="stMarkdownContainer"] div.ms-heading-3,
+    [data-testid="stMarkdownContainer"] div.ms-heading-3 * {
+        color: #e6edf3 !important;
+        font-size: 1.0rem !important;
+        font-weight: 600 !important;
+        margin: 0.5rem 0 0.2rem 0 !important;
+        line-height: 1.2 !important;
+    }
 
     /* Metric tiles — dark card style */
     [data-testid="stMetric"] {
@@ -225,6 +259,20 @@ _COMPACT_CSS = """
     .stAlert { background-color: #161b22 !important; border-color: #1a2332 !important; }
 </style>
 """
+
+
+def heading(text: str, level: int = 1) -> None:
+    """Render a heading using a CSS class defined in compact_layout()'s
+    style block. We do NOT use inline `style` attributes because Streamlit's
+    HTML sanitizer in `unsafe_allow_html=True` strips them out — that's
+    why earlier attempts with inline color were invisible. Class attributes
+    are preserved by the sanitizer.
+    """
+    lvl = level if level in (1, 2, 3) else 3
+    st.markdown(
+        f'<div class="ms-heading-{lvl}">{text}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def compact_layout() -> None:

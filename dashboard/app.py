@@ -8,7 +8,7 @@ Run: streamlit run dashboard/app.py
 """
 import streamlit as st
 
-from utils.snowflake_conn import compact_layout
+from utils.snowflake_conn import compact_layout, heading
 from utils.theme import dark_chart  # noqa: F401 — registers dark plotly template
 
 st.set_page_config(
@@ -19,7 +19,7 @@ st.set_page_config(
 )
 compact_layout()
 
-st.title("Market Streaming Pipeline")
+heading("Market Streaming Pipeline")
 st.markdown(
     """
     Real-time market data analytics platform ingesting **104 symbols** via
@@ -39,7 +39,7 @@ st.markdown(
     - **Data Quality** — completeness, validity scores, anomaly detection
     - **Microstructure** — spread, trade flow, order imbalance, U-curve
 
-    *Cross-pipeline (streaming × batch)*
+    *Cross-pipeline (streaming x batch)*
     - **Fundamentals** — TTM valuation ratios re-priced with live streaming close
     - **Dividends** — TTM yield + sector breakdown + live-yield estimate
     - **Reconciliation** — streaming vs batch agreement on prices and returns
