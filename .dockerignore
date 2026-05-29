@@ -1,0 +1,30 @@
+# Astro build context exclusions — keep the image small + builds fast
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local-only dev artifacts
+.env
+.env.example
+logs/
+data/
+notebooks/      # Databricks notebooks aren't needed in the Airflow image
+monitoring/     # Prometheus/Grafana — separate concern
+dashboard/      # Streamlit — separate concern
+tests/          # Tests run in CI, not in the Airflow image
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

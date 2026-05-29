@@ -1,0 +1,5 @@
+# Airflow provider packages for the EOD DAG.
+# The project itself (market_streaming + recon extras) is installed via
+# the Dockerfile, so it does not need to be repeated here.
+apache-airflow-providers-google
+apache-airflow-providers-slack

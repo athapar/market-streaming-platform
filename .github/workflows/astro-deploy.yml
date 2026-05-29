@@ -1,0 +1,31 @@
+name: Deploy to Astro
+
+# Push to main triggers an automatic deploy. workflow_dispatch lets you
+# trigger manually from the GitHub Actions UI — useful when local Docker
+# Desktop / WSL is unreliable.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dags/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'warehouse/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/astro-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Astro
+        uses: astronomer/deploy-action@v0
+        with:
+          deployment-id: cmpq1zu151sxl01oz223vplxb
+        env:
+          ASTRO_API_TOKEN: ${{ secrets.ASTRO_API_TOKEN }}
