@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to Astro
-        uses: astronomer/deploy-action@v1
+        uses: astronomer/deploy-action@v0.13.0
         with:
           deployment-id: cmpq1zu151sxl01oz223vplxb
         env:
