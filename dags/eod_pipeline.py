@@ -69,9 +69,14 @@ GCP_CRED_PREAMBLE = dedent("""
 
 
 # ---------------------------------------------------------------------------
-# Failure handler — one Slack post per task failure with a link to the log
+# Failure handler — one Slack post per task failure with a link to the log.
+# Uses the Hook directly (not the Operator) because callbacks in Airflow 3.x
+# run outside the Task Runner context — calling Operator.execute() from a
+# callback emits a warning even though it still works.
 # ---------------------------------------------------------------------------
 def slack_on_failure(context: dict) -> None:
+    from airflow.providers.slack.hooks.slack_webhook import SlackWebhookHook
+
     ti = context["task_instance"]
     msg = dedent(f"""
         :x: *EOD pipeline task failed*
@@ -80,11 +85,7 @@ def slack_on_failure(context: dict) -> None:
         Run: `{context["run_id"]}`
         Logs: {ti.log_url}
     """).strip()
-    SlackWebhookOperator(
-        task_id="_slack_failure_post",
-        slack_webhook_conn_id="slack_default",
-        message=msg,
-    ).execute(context)
+    SlackWebhookHook(slack_webhook_conn_id="slack_default").send_text(msg)
 
 
 default_args = {
