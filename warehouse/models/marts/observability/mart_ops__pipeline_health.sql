@@ -1,7 +1,7 @@
 {{
   config(
     materialized = 'table',
-    description  = 'Pipeline health metrics derived from Gold data: latency, throughput, coverage per day.'
+    description  = 'Pipeline health metrics derived from Gold data: batch ingest lag, throughput, regular-session coverage per day.'
   )
 }}
 
@@ -11,10 +11,24 @@
   columns already in the data (silver_timestamp, window_start, bar_count).
 
   Metrics:
-    - processing_latency_*: silver_timestamp - window_start (how fast bars are processed)
-    - coverage_pct: bars received / expected bars (symbols × 390 minutes)
-    - symbols_active: distinct symbols seen per day
-    - freshness: time since last bar was processed
+    - batch_lag_*: silver_timestamp - window_start. This is NOT producer→Kafka
+      latency. The Spark stream runs with trigger(availableNow=True) (batch
+      mode), so this measures the wall-clock gap between a bar's market minute
+      and when the operator kicked off the batch that ingested it. For the
+      real-time producer→Kafka path (sub-50ms p99) see the Prometheus/Grafana
+      kafka_produce_latency_seconds histogram. pipeline_mode flags which tier
+      a given day ran in.
+    - coverage_pct: regular-session bars received / expected (symbols × 391).
+      391 = one bar per minute 09:30–16:00 ET inclusive. We filter to the
+      regular session because pre/post-market bars would push coverage >100%
+      against a regular-hours baseline (an apples-to-oranges recon flag, not
+      an achievement). Capped at 100%.
+    - symbols_active: distinct symbols seen per day (regular session).
+    - freshness: time since last bar was processed.
+
+  window_start is stored in UTC (Polygon epoch ms cast straight to a timestamp
+  with no TZ conversion), so we convert to America/New_York to apply the
+  session filter — convert_timezone handles EST/EDT automatically.
 */
 
 with minute_bars as (
@@ -27,36 +41,28 @@ with minute_bars as (
         trade_count,
         close_price
     from {{ source('gold', 'GOLD_MINUTE_BARS') }}
+    -- regular session only: 09:30–16:00 ET inclusive
+    where time(convert_timezone('UTC', 'America/New_York', window_start))
+              between '09:30:00' and '16:00:00'
 ),
 
-daily_rollup as (
-    select
-        event_date,
-        symbol,
-        bar_count,
-        first_bar_start,
-        last_bar_start,
-        updated_at
-    from {{ source('gold', 'GOLD_DAILY_ROLLUP') }}
-),
-
--- per-day latency from minute bars
-latency_stats as (
+-- per-day lag + throughput from regular-session minute bars
+daily_stats as (
     select
         event_date,
         count(*)                                                      as total_bars,
         count(distinct symbol)                                        as symbols_active,
 
-        -- processing latency: how long from market event to Silver write
-        avg(datediff('second', window_start, silver_timestamp))       as avg_latency_s,
-        median(datediff('second', window_start, silver_timestamp))    as p50_latency_s,
+        -- batch ingest lag: market minute -> Silver write (see header note)
+        avg(datediff('second', window_start, silver_timestamp))       as avg_batch_lag_s,
+        median(datediff('second', window_start, silver_timestamp))    as p50_batch_lag_s,
         percentile_cont(0.95) within group (
             order by datediff('second', window_start, silver_timestamp)
-        )                                                             as p95_latency_s,
+        )                                                             as p95_batch_lag_s,
         percentile_cont(0.99) within group (
             order by datediff('second', window_start, silver_timestamp)
-        )                                                             as p99_latency_s,
-        max(datediff('second', window_start, silver_timestamp))       as max_latency_s,
+        )                                                             as p99_batch_lag_s,
+        max(datediff('second', window_start, silver_timestamp))       as max_batch_lag_s,
 
         -- throughput
         sum(volume)                                                   as total_volume,
@@ -72,15 +78,17 @@ latency_stats as (
     group by event_date
 ),
 
--- expected bars = symbols_active × 390 market minutes
+-- expected bars = symbols_active × 391 regular-session minutes
 coverage as (
     select
-        l.*,
-        l.symbols_active * 390                                        as expected_bars,
-        round(l.total_bars * 100.0 / nullif(l.symbols_active * 390, 0), 2)
-                                                                      as coverage_pct,
-        datediff('minute', l.first_bar_at, l.last_bar_at)              as session_duration_min
-    from latency_stats l
+        d.*,
+        d.symbols_active * 391                                        as expected_bars,
+        least(
+            round(d.total_bars * 100.0 / nullif(d.symbols_active * 391, 0), 2),
+            100
+        )                                                             as coverage_pct,
+        datediff('minute', d.first_bar_at, d.last_bar_at)             as session_duration_min
+    from daily_stats d
 )
 
 select
@@ -91,11 +99,19 @@ select
     coverage_pct,
     session_duration_min,
 
-    round(avg_latency_s, 2)  as avg_latency_s,
-    round(p50_latency_s, 2)  as p50_latency_s,
-    round(p95_latency_s, 2)  as p95_latency_s,
-    round(p99_latency_s, 2)  as p99_latency_s,
-    round(max_latency_s, 2)  as max_latency_s,
+    -- batch ingest lag (NOT producer latency — see model header)
+    round(avg_batch_lag_s, 2)  as avg_batch_lag_s,
+    round(p50_batch_lag_s, 2)  as p50_batch_lag_s,
+    round(p95_batch_lag_s, 2)  as p95_batch_lag_s,
+    round(p99_batch_lag_s, 2)  as p99_batch_lag_s,
+    round(max_batch_lag_s, 2)  as max_batch_lag_s,
+
+    -- which tier this day ran in: a median lag over 2 min means the bars were
+    -- swept up by an availableNow batch, not a continuous (processingTime) stream
+    case
+        when p50_batch_lag_s > 120 then 'batch'
+        else 'streaming'
+    end                        as pipeline_mode,
 
     total_volume,
     total_trades,

@@ -8,10 +8,16 @@
 /*
   Per (symbol, date) data quality checks computed from Gold.
   Each row gets a quality score (0-100) based on:
-    - completeness: bar_count / 390 expected bars
-    - validity: no nulls in critical fields, prices > 0, volume >= 0
-    - consistency: close within OHLC range, low <= high
-    - freshness: data was processed within expected latency window
+    - completeness: bar_count / 390 expected bars (50%)
+    - validity: no nulls in critical fields, prices > 0, volume >= 0,
+                close within OHLC range, low <= high (50%)
+
+  Note: batch ingest lag (window_start → silver_timestamp) is reported as an
+  observability column but deliberately excluded from the quality score. The
+  Spark stream runs with trigger(availableNow=True), so a multi-minute lag just
+  reflects when the batch was kicked off, not a data defect — scoring it would
+  penalize batch-tier days for working as designed. Genuine staleness is caught
+  upstream by the ingest freshness SLA / Grafana alerting, not here.
 */
 
 with bars as (
@@ -54,9 +60,9 @@ checks as (
         count(case when vwap is null or vwap <= 0 then 1 end)
                                                           as invalid_vwap,
 
-        -- latency
-        avg(datediff('second', window_start, silver_timestamp)) as avg_latency_s,
-        max(datediff('second', window_start, silver_timestamp)) as max_latency_s,
+        -- batch ingest lag (observability only — NOT scored; see header note)
+        avg(datediff('second', window_start, silver_timestamp)) as avg_batch_lag_s,
+        max(datediff('second', window_start, silver_timestamp)) as max_batch_lag_s,
 
         -- session window
         min(window_start)                                 as first_bar,
@@ -81,9 +87,10 @@ scored as (
             * 100.0 / nullif(bar_count, 0), 2
         )                                                 as validity_pct,
 
-        -- overall quality score: completeness 40%, validity 40%, freshness 20%
+        -- overall quality score: completeness 50%, validity 50%
+        -- (batch lag deliberately excluded — see header note)
         round(
-            least(completeness_pct, 100) * 0.40
+            least(completeness_pct, 100) * 0.50
             + (case
                 when (null_or_negative_close + invalid_volume + high_lt_low
                       + close_outside_range + open_outside_range) = 0
@@ -92,10 +99,7 @@ scored as (
                     100.0 - (null_or_negative_close + invalid_volume + high_lt_low
                              + close_outside_range + open_outside_range)
                     * 100.0 / nullif(bar_count, 0))
-               end) * 0.40
-            + (case when avg_latency_s < 300 then 100
-                    when avg_latency_s < 900 then 50
-                    else 0 end) * 0.20
+               end) * 0.50
         , 2)                                              as quality_score
     from checks
 )
@@ -117,8 +121,8 @@ select
     invalid_vwap,
     total_invalid_bars,
 
-    round(avg_latency_s, 2) as avg_latency_s,
-    round(max_latency_s, 2) as max_latency_s,
+    round(avg_batch_lag_s, 2) as avg_batch_lag_s,
+    round(max_batch_lag_s, 2) as max_batch_lag_s,
 
     first_bar,
     last_bar,

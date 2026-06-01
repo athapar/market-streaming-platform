@@ -1,4 +1,4 @@
-﻿"""Pipeline Health — throughput, latency, coverage over time."""
+﻿"""Pipeline Health — throughput, batch ingest lag, coverage over time."""
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -43,18 +43,26 @@ if df.empty:
 
 # --- KPIs (row 1) ---
 latest = df.iloc[-1]
+mode = latest.get("pipeline_mode", "batch")
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Active Symbols", int(latest["symbols_active"]))
 k2.metric("Bars Today",     f"{int(latest['total_bars']):,}")
 k3.metric("Coverage",       f"{latest['coverage_pct']:.1f}%")
-k4.metric("p50 Latency",    f"{latest['p50_latency_s']:.1f}s")
-k5.metric("p99 Latency",    f"{latest['p99_latency_s']:.1f}s")
+k4.metric("p50 Batch Lag",  f"{latest['p50_batch_lag_s']:.0f}s")
+k5.metric("p99 Batch Lag",  f"{latest['p99_batch_lag_s']:.0f}s")
+
+st.caption(
+    f"Ingest tier: **{mode}**. Batch lag = market-minute → Silver-write gap for the "
+    "`availableNow` Spark batch — it reflects when the batch was kicked off, not "
+    "producer→Kafka latency. The real-time producer path (sub-50 ms p99) is tracked "
+    "in the Prometheus/Grafana `kafka_produce_latency_seconds` histogram."
+)
 
 
 def _tight(fig, height=225):
     dark_chart(fig, height)
     fig.update_layout(
-        margin=dict(t=24, b=24, l=8, r=8),
+        margin=dict(t=14, b=14, l=8, r=8),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
     )
     return fig
@@ -64,12 +72,12 @@ def _tight(fig, height=225):
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    heading("Processing Latency (s)", 3)
+    heading("Batch Ingest Lag (s)", 3)
     fig_latency = go.Figure()
     for col, name, dash in [
-        ("p50_latency_s", "p50", "solid"),
-        ("p95_latency_s", "p95", "dash"),
-        ("p99_latency_s", "p99", "dot"),
+        ("p50_batch_lag_s", "p50", "solid"),
+        ("p95_batch_lag_s", "p95", "dash"),
+        ("p99_batch_lag_s", "p99", "dot"),
     ]:
         fig_latency.add_trace(go.Scatter(
             x=df["event_date"], y=df[col],

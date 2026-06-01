@@ -50,10 +50,10 @@ k3.metric("Top TTM Yield",      f"{top_yield:.2f}%" if pd.notna(top_yield) else 
 k4.metric("Ex-Div Events",      f"{len(df):,}")
 
 
-def _tight(fig, height=270):
+def _tight(fig, height=200):
     dark_chart(fig, height)
     fig.update_layout(
-        margin=dict(t=24, b=24, l=8, r=8),
+        margin=dict(t=14, b=14, l=8, r=8),
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
     )
     return fig
@@ -63,36 +63,6 @@ def _tight(fig, height=270):
 c1, c2 = st.columns(2)
 
 with c1:
-    heading("Top Yielders (latest ex-div events)", 3)
-    top_y = paying.nlargest(20, "ttm_yield_pct")
-    fig_top = px.bar(
-        top_y, x="ticker", y="ttm_yield_pct",
-        color="ttm_yield_pct", color_continuous_scale="Greens",
-        hover_data={"ticker": False, "ttm_yield_pct": ":.2f",
-                    "live_yield_pct": ":.2f", "cash_amount": ":.4f"},
-    )
-    fig_top.update_layout(xaxis_title=None, yaxis_title="TTM Yield %")
-    st.plotly_chart(_tight(fig_top), use_container_width=True)
-
-with c2:
-    delta_df = paying.dropna(subset=["live_yield_pct"]).copy()
-    delta_df["yield_delta_bps"] = (delta_df["live_yield_pct"] - delta_df["ttm_yield_pct"]) * 100
-    if not delta_df.empty:
-        heading("Live vs Ex-Date Yield Δ (bps)", 3)
-        fig_delta = px.bar(
-            delta_df.sort_values("yield_delta_bps"),
-            x="ticker", y="yield_delta_bps",
-            color="yield_delta_bps", color_continuous_scale="RdBu",
-            color_continuous_midpoint=0,
-            hover_data={"ttm_yield_pct": ":.2f", "live_yield_pct": ":.2f"},
-        )
-        fig_delta.update_layout(xaxis_title=None, yaxis_title="bps")
-        st.plotly_chart(_tight(fig_delta), use_container_width=True)
-
-# --- Row 2: sector yields + per-symbol trend (2 cols) ---
-c3, c4 = st.columns(2)
-
-with c3:
     heading("Avg TTM Yield by Sector (top 15)", 3)
     sec_df = latest.dropna(subset=["sic_description"])
     if not sec_df.empty:
@@ -115,9 +85,8 @@ with c3:
         )
         fig_sec.update_layout(yaxis={"categoryorder": "total ascending"},
                               xaxis_title="avg yield %", yaxis_title=None)
-        st.plotly_chart(_tight(fig_sec, height=340), use_container_width=True)
-
-with c4:
+        st.plotly_chart(_tight(fig_sec, height=200), use_container_width=True)
+with c2:
     heading("Yield Trend Over Time", 3)
     symbols = sorted(df["ticker"].unique())
     default_pick = [s for s in ["MSFT", "JNJ", "PG", "T", "VZ", "XOM"] if s in symbols][:4]
@@ -132,7 +101,39 @@ with c4:
             hover_data={"cash_amount": ":.4f", "batch_close_price": ":.2f"},
         )
         fig_trend.update_layout(xaxis_title=None, yaxis_title="TTM Yield %")
-        st.plotly_chart(_tight(fig_trend, height=320), use_container_width=True)
+        st.plotly_chart(_tight(fig_trend, height=200), use_container_width=True)
+
+
+
+# --- Row 2: sector yields + per-symbol trend (2 cols) ---
+c3, c4 = st.columns(2)
+with c3:
+    heading("Top Yielders (latest ex-div events)", 3)
+    top_y = paying.nlargest(20, "ttm_yield_pct")
+    fig_top = px.bar(
+        top_y, x="ticker", y="ttm_yield_pct",
+        color="ttm_yield_pct", color_continuous_scale="Greens",
+        hover_data={"ticker": False, "ttm_yield_pct": ":.2f",
+                    "live_yield_pct": ":.2f", "cash_amount": ":.4f"},
+    )
+    fig_top.update_layout(xaxis_title=None, yaxis_title="TTM Yield %")
+    st.plotly_chart(_tight(fig_top), use_container_width=True)
+
+with c4:
+    delta_df = paying.dropna(subset=["live_yield_pct"]).copy()
+    delta_df["yield_delta_bps"] = (delta_df["live_yield_pct"] - delta_df["ttm_yield_pct"]) * 100
+    if not delta_df.empty:
+        heading("Live vs Ex-Date Yield Δ (bps)", 3)
+        fig_delta = px.bar(
+            delta_df.sort_values("yield_delta_bps"),
+            x="ticker", y="yield_delta_bps",
+            color="yield_delta_bps", color_continuous_scale="RdBu",
+            color_continuous_midpoint=0,
+            hover_data={"ttm_yield_pct": ":.2f", "live_yield_pct": ":.2f"},
+        )
+        fig_delta.update_layout(xaxis_title=None, yaxis_title="bps")
+        st.plotly_chart(_tight(fig_delta), use_container_width=True)
+
 
 # --- Expander: full table ---
 with st.expander("Latest yield ranking — full table"):

@@ -3,26 +3,34 @@ version: 2
 models:
   - name: mart_ops__pipeline_health
     description: >
-      Daily pipeline health metrics derived from Gold data. Tracks processing
-      latency (p50/p95/p99), throughput, session coverage, and data freshness.
+      Daily pipeline health metrics derived from Gold data. Tracks batch ingest
+      lag (p50/p95/p99), throughput, regular-session coverage, and data freshness.
       No additional instrumentation needed — computed from existing timestamps.
+      Limited to regular-session bars (09:30–16:00 ET) so coverage is measured
+      against a regular-hours baseline.
     columns:
       - name: event_date
         tests: [not_null]
       - name: symbols_active
-        description: Distinct symbols with at least one bar on this date.
+        description: Distinct symbols with at least one regular-session bar on this date.
       - name: total_bars
-        description: Total minute bars ingested across all symbols.
+        description: Total regular-session minute bars ingested across all symbols.
       - name: coverage_pct
         description: >
-          Bars received / (symbols_active × 390 expected minutes) × 100.
-          100% = full session for every active symbol.
-      - name: p50_latency_s
-        description: Median processing latency in seconds (market event → Silver write).
-      - name: p95_latency_s
-        description: 95th percentile processing latency in seconds.
-      - name: p99_latency_s
-        description: 99th percentile processing latency in seconds.
+          Regular-session bars received / (symbols_active × 391 expected minutes)
+          × 100, capped at 100. 391 = one bar per minute 09:30–16:00 ET inclusive.
+      - name: pipeline_mode
+        description: >
+          'batch' when p50 batch lag > 120s (bars swept by an availableNow batch),
+          else 'streaming'. Flags which ingest tier the day ran in.
+      - name: p50_batch_lag_s
+        description: >
+          Median batch ingest lag in seconds (market minute → Silver write). NOT
+          producer→Kafka latency — see kafka_produce_latency_seconds in Grafana.
+      - name: p95_batch_lag_s
+        description: 95th percentile batch ingest lag in seconds.
+      - name: p99_batch_lag_s
+        description: 99th percentile batch ingest lag in seconds.
       - name: bars_per_minute
         description: Average throughput — bars processed per minute of active session.
       - name: total_dollar_volume
@@ -31,9 +39,10 @@ models:
   - name: mart_ops__data_quality
     description: >
       Per (symbol, date) data quality scorecard. Checks completeness (bar count
-      vs 390 expected), validity (prices > 0, high >= low, close within OHLC),
-      and freshness (processing latency). Overall quality_score is 0-100 weighted
-      composite.
+      vs 390 expected) and validity (prices > 0, high >= low, close within OHLC).
+      Overall quality_score is a 0-100 composite: completeness 50%, validity 50%.
+      Batch ingest lag is reported (avg/max_batch_lag_s) but excluded from the
+      score — it reflects the availableNow batch cadence, not a data defect.
     columns:
       - name: symbol
         tests: [not_null]
@@ -41,8 +50,7 @@ models:
         tests: [not_null]
       - name: quality_score
         description: >
-          Weighted quality score 0-100. Weights: completeness 40%,
-          validity 40%, freshness 20%.
+          Weighted quality score 0-100. Weights: completeness 50%, validity 50%.
       - name: completeness_pct
         description: bar_count / 390 × 100. Full session = ~100%.
       - name: validity_pct

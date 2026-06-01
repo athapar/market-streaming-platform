@@ -25,6 +25,7 @@ def load_recon():
             price_date, recon_status,
             COUNT(*) as cnt
         FROM {fqn('marts', 'mart_recon__daily_delta')}
+        WHERE price_date >= TO_DATE('05/26/2026', 'MM/DD/YYYY')
         GROUP BY price_date, recon_status
         ORDER BY price_date
     """)
@@ -62,7 +63,7 @@ k3.metric("Avg Validity",      f"{day_dq['validity_pct'].mean():.1f}%")
 k4.metric("Total Invalid Bars", int(day_dq["total_invalid_bars"].sum()))
 
 
-def _tight(fig, height=250):
+def _tight(fig, height=200):
     dark_chart(fig, height)
     fig.update_layout(
         margin=dict(t=24, b=24, l=8, r=8),

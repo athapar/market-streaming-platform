@@ -58,7 +58,7 @@ def dark_chart(fig: go.Figure, height: int = 315) -> go.Figure:
     fig.update_layout(
         template=DARK_TEMPLATE,
         height=height,
-        margin=dict(t=25, b=40, l=50, r=20),
+        margin=dict(t=15, b=40, l=30, r=20),
     )
     return fig
 
