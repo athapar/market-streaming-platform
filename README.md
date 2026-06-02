@@ -59,25 +59,26 @@ flowchart LR
 
 ### Operating Snapshot
 
-*Measured from a full 6.5-hour regular-hours session (2025-05-27).*
+*Measured across three consecutive regular-hours sessions (2026-05-27, 05-28, 05-29).*
 
 | Metric | Value |
 |---|---|
 | Symbols tracked | 104 (S&P 100 + TSLA + SPY / QQQ / IWM / DIA) |
 | Real-time channels | AM (minute aggs, 104) &middot; T (trades, 104) &middot; Q (NBBO quotes, 20 high-liquidity) |
-| Session captured | 6.5 hours, regular market hours |
-| Total events &rarr; Kafka | 36,860,531 |
-| Total events &rarr; Bronze Delta | 36,861,245 |
+| Sessions captured | 3 full sessions, 6.5 hours each, regular market hours |
+| Producer reliability (across all sessions) | `kafka_failed=0` &middot; `spillover=0` &middot; `reconnects=0` |
+| Session 1 (2026-05-27) events &rarr; Kafka | 36,860,531 |
+| Session 2 (2026-05-28) events &rarr; Kafka | full session, same reliability metrics |
+| Session 3 (2026-05-29) events &rarr; Kafka | 42,015,098 |
 | Kafka &rarr; Bronze drift | 0.002% (session-start checkpoint overlap; deduplicated downstream) |
-| Sustained throughput | ~1,580 events/sec average &middot; ~4,500 events/sec at open |
-| Producer reliability | `kafka_failed=0` &middot; `spillover=0` &middot; `reconnects=0` |
-| Trades captured | 18,523,949 (~178K per symbol) |
-| NBBO quote updates | 18,293,494 (~915K per quoted symbol) |
-| Minute aggregate bars | 43,802 (104 symbols &times; ~390 minutes &asymp; 100% coverage) |
-| Symbol coverage in Silver | 103/104 (one symbol didn't trade) |
+| Sustained throughput (session 1) | ~1,580 events/sec average &middot; ~4,500 events/sec at open |
+| Trades captured (session 1) | 18,523,949 (~178K per symbol) |
+| NBBO quote updates (session 1) | 18,293,494 (~915K per quoted symbol) |
+| Minute aggregate bars (session 1) | 43,802 (104 symbols &times; ~390 minutes &asymp; 100% coverage) |
+| Symbol coverage in Silver | 103/104 (one symbol didn't trade on day 1) |
 | FIGI match rate | 104/104 after historical security master integration |
 | Snowflake sync match | 100% (Delta &harr; Snowflake row counts identical) |
-| Average quoted spread | 3.13 bps &middot; tightest minute 0.10 bps |
+| Average quoted spread (session 1) | 3.13 bps &middot; tightest minute 0.10 bps |
 | dbt models | 30 (staging 9 &middot; intermediate 5 &middot; marts 16) |
 
 ### Data Flow
