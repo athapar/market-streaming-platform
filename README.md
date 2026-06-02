@@ -1,12 +1,12 @@
 # Real-Time Market Data Platform
 
-End-to-end market data platform with real-time ingest and micro-batch processing: Polygon.io WebSocket &rarr; Kafka &rarr; Spark Structured Streaming &rarr; Delta Lake medallion (Bronze/Silver/Gold) &rarr; Snowflake, capturing **36.9M events across 104 symbols in a 6.5-hour trading session** with 100% delivery reliability. A dbt reconciliation and analytics layer compares streaming OHLCV against batch BigQuery ground truth, live-prices TTM fundamental ratios, and surfaces microstructure, risk, and anomaly signals through an 8-page Streamlit dashboard.
+End-to-end market data platform with real-time ingest and micro-batch processing: Polygon.io WebSocket &rarr; Kafka &rarr; Spark Structured Streaming &rarr; Delta Lake medallion (Bronze/Silver/Gold) &rarr; Snowflake, capturing **~80M+ events across 104 symbols over three consecutive trading sessions** with 100% delivery reliability. A dbt reconciliation and analytics layer compares streaming OHLCV against batch BigQuery ground truth, live-prices TTM fundamental ratios, and surfaces microstructure, risk, and anomaly signals through an 8-page Streamlit dashboard.
 
 **[Live Dashboard](./dashboard/README.md)** &mdash; deployed via Streamlit Community Cloud
 
 | | |
 |---|---|
-| **36.9M events ingested** in a single session &mdash; 18.5M trades, 18.3M NBBO quotes, 43.8K minute bars | **100% delivery reliability** &mdash; zero Kafka failures, zero spillover, zero WebSocket reconnects |
+| **~80M+ events ingested** across three consecutive sessions &mdash; trades, NBBO quotes, and minute bars | **100% delivery reliability across all 3 sessions** &mdash; zero Kafka failures, zero spillover, zero WebSocket reconnects |
 | **100% sync fidelity** &mdash; Delta &harr; Snowflake row counts identical across all Gold tables | **~50&times; bulk-load speedup** &mdash; `PUT + COPY INTO` vs `executemany` on the 7.4M-row trades table |
 
 ## Architecture
@@ -300,7 +300,7 @@ python scripts/bq_to_snowflake_dividends.py      # after ex-div events
 cd warehouse && dbt run && dbt test
 
 # 6. Launch dashboard
-streamlit run dashboard/app.py
+streamlit run dashboard/Home.py
 ```
 
 ### Monitoring

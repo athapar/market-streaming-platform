@@ -4,7 +4,7 @@ Market Streaming Pipeline — Analytics Dashboard
 Multi-page Streamlit app for pipeline observability, market analytics,
 and data quality monitoring. Reads from Snowflake dbt marts.
 
-Run: streamlit run dashboard/app.py
+Run: streamlit run dashboard/Home.py
 """
 import streamlit as st
 

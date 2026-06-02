@@ -26,7 +26,7 @@ pip install -r dashboard/requirements.txt
 cp dashboard/.streamlit/secrets.toml.example dashboard/.streamlit/secrets.toml
 # ... fill in the [snowflake] section ...
 
-streamlit run dashboard/app.py
+streamlit run dashboard/Home.py
 ```
 
 ## Deploy to Streamlit Community Cloud
@@ -36,7 +36,7 @@ streamlit run dashboard/app.py
 3. Configure:
    - **Repository:** `<you>/market-streaming-platform`
    - **Branch:** `main`
-   - **Main file path:** `dashboard/app.py`
+   - **Main file path:** `dashboard/Home.py`
    - **Python version:** 3.11 or 3.12
 4. Under **Advanced settings → Secrets**, paste the same TOML block as
    `dashboard/.streamlit/secrets.toml.example`, with real values:
