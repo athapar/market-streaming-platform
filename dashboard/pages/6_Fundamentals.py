@@ -2,7 +2,7 @@
 import streamlit as st
 import plotly.express as px
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Fundamentals", layout="wide")
@@ -15,7 +15,7 @@ st.caption(
 )
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_valuation():
     return query(f"""
         SELECT
@@ -34,7 +34,7 @@ def load_valuation():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_factor_scores():
     return query(f"""
         SELECT

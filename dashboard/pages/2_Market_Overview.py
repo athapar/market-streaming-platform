@@ -2,7 +2,7 @@
 import streamlit as st
 import plotly.express as px
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import dark_chart  # noqa: F401 — registers dark template on import
 
 st.set_page_config(page_title="Market Overview", layout="wide")
@@ -10,7 +10,7 @@ compact_layout()
 heading("Market Overview")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_daily_stats():
     return query(f"""
         SELECT

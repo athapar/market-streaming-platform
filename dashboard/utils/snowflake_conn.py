@@ -108,6 +108,12 @@ def query(sql: str, params: dict | None = None) -> pd.DataFrame:
 DATABASE     = "MARKET_STREAMING"
 _DBT_TARGET  = _secret("DBT_TARGET", required=False) or "DBT_DEV"
 
+# Query cache TTL (seconds). Default 300 keeps warehouse credit usage low in
+# batch mode. In low-latency streaming mode, drop it (e.g. 15) by setting
+# DASHBOARD_CACHE_TTL as an env var locally or under [snowflake] in Streamlit
+# Cloud secrets — no code change needed to flip between modes.
+CACHE_TTL    = int(_secret("DASHBOARD_CACHE_TTL", required=False) or 300)
+
 
 def fqn(custom_schema: str, table: str) -> str:
     """Fully-qualified Snowflake table name for a dbt-built mart.

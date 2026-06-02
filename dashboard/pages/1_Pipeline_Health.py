@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import CYAN, GREEN, ORANGE, dark_chart
 
 st.set_page_config(page_title="Pipeline Health", layout="wide")
@@ -11,7 +11,7 @@ compact_layout()
 heading("Pipeline Health")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_health():
     return query(f"""
         SELECT * FROM {fqn('observability', 'mart_ops__pipeline_health')}
@@ -19,7 +19,7 @@ def load_health():
     """)
 
 
-@st.cache_data(ttl=200)
+@st.cache_data(ttl=CACHE_TTL)
 def load_quality_summary():
     return query(f"""
         SELECT

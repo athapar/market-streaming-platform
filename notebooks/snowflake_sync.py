@@ -214,3 +214,59 @@ try:
             print(f"{name:20s} — skipped ({e})")
 finally:
     conn.close()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## Continuous sync loop — low-latency mode
+# MAGIC
+# MAGIC Pairs with the `processingTime` streaming run. Keeps the **small** Gold
+# MAGIC tables (minute bars, daily rollup, quote stats) fresh in Snowflake on a
+# MAGIC tight cadence so the dbt marts + dashboard can track near-real-time data.
+# MAGIC
+# MAGIC `GOLD_TRADES` (40M+ rows) is intentionally **excluded** — a full replace is
+# MAGIC far too slow for a tight loop. Sync it from the one-shot cell above at end
+# MAGIC of session, or add an incremental (today's-partition) path if you need it
+# MAGIC live. Set widget `loop=true`, Run, and interrupt the cell to stop.
+
+# COMMAND ----------
+import time
+from datetime import datetime, timezone
+
+dbutils.widgets.dropdown("loop", "false", ["false", "true"], "Continuous sync loop")
+dbutils.widgets.text("loop_seconds", "30", "Seconds between sync passes")
+
+
+def sync_small_tables() -> None:
+    """One pass: full-replace the three small Gold tables into Snowflake."""
+    conn = build_connection(
+        account=sf_account, user=sf_user, password=sf_password,
+        warehouse=sf_warehouse, database=sf_database, schema=sf_schema, role=sf_role,
+    )
+    try:
+        for delta_tbl, sf_tbl in [
+            (minute_table,      "GOLD_MINUTE_BARS"),
+            (daily_table,       "GOLD_DAILY_ROLLUP"),
+            (quote_stats_table, "GOLD_QUOTE_STATS"),
+        ]:
+            df = spark.read.format("delta").table(delta_tbl)
+            n = sync_table(df, conn, sf_tbl, mode="replace")
+            print(f"  {sf_tbl:18s}: {n:,} rows")
+    finally:
+        conn.close()
+
+
+if dbutils.widgets.get("loop") == "true":
+    interval = int(dbutils.widgets.get("loop_seconds"))
+    print(f"continuous sync every {interval}s — interrupt the cell to stop")
+    while True:
+        t0 = time.time()
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[{ts}] sync pass")
+        try:
+            sync_small_tables()
+        except Exception as exc:
+            print(f"  pass failed (will retry next interval): {exc}")
+        # subtract work time so the cadence stays ~constant
+        time.sleep(max(0, interval - (time.time() - t0)))
+else:
+    print("loop=false — set the 'loop' widget to 'true' and re-run this cell to start")

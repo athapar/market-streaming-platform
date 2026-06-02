@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Reconciliation", layout="wide")
@@ -28,7 +28,7 @@ _STATUS_COLORS = {
 }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_price_recon():
     return query(f"""
         SELECT
@@ -42,7 +42,7 @@ def load_price_recon():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_returns_recon():
     return query(f"""
         SELECT

@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import CYAN, GRAY, BG_CARD, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Risk Analytics", layout="wide")
@@ -12,7 +12,7 @@ compact_layout()
 heading("Risk Analytics")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_risk():
     return query(f"""
         SELECT symbol, price_date, rolling_beta, rolling_correlation,
@@ -23,7 +23,7 @@ def load_risk():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_correlations():
     return query(f"""
         SELECT symbol_a, symbol_b, correlation
@@ -31,7 +31,7 @@ def load_correlations():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_volume_profile():
     return query(f"""
         SELECT symbol, bucket_id, bucket_time,

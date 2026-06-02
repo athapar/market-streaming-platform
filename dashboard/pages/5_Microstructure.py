@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import CYAN, RED, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Microstructure", layout="wide")
@@ -11,7 +11,7 @@ compact_layout()
 heading("Microstructure Analytics")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_micro_daily():
     return query(f"""
         SELECT symbol, trade_date,
@@ -25,7 +25,7 @@ def load_micro_daily():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_spread_profile():
     return query(f"""
         SELECT symbol, bucket_id,
@@ -37,7 +37,7 @@ def load_spread_profile():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_trade_sizes():
     return query(f"""
         SELECT symbol, trade_date, size_class,

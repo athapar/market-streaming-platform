@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Dividends", layout="wide")
@@ -15,7 +15,7 @@ st.caption(
 )
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_dividends():
     return query(f"""
         SELECT

@@ -2,7 +2,7 @@
 import streamlit as st
 import plotly.express as px
 
-from utils.snowflake_conn import compact_layout, heading, fqn, query
+from utils.snowflake_conn import compact_layout, heading, fqn, query, CACHE_TTL
 from utils.theme import CYAN, GREEN, dark_chart  # noqa: F401
 
 st.set_page_config(page_title="Data Quality", layout="wide")
@@ -10,7 +10,7 @@ compact_layout()
 heading("Data Quality")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_quality():
     return query(f"""
         SELECT * FROM {fqn('observability', 'mart_ops__data_quality')}
@@ -18,7 +18,7 @@ def load_quality():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_recon():
     return query(f"""
         SELECT
@@ -31,7 +31,7 @@ def load_recon():
     """)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL)
 def load_unusual():
     return query(f"""
         SELECT symbol, event_date, activity_classification,
