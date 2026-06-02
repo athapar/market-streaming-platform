@@ -39,8 +39,8 @@ from textwrap import dedent
 
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from airflow.providers.google.cloud.sensors.bigquery import (
-    BigQueryTablePartitionExistenceSensor,
+from airflow.providers.google.cloud.operators.bigquery import (
+    BigQueryCheckOperator,
 )
 from airflow.providers.slack.operators.slack_webhook import SlackWebhookOperator
 
@@ -112,19 +112,25 @@ with DAG(
 ) as dag:
 
     # ── 1. Wait for batch pipeline to publish today's row ──────────────────
-    # The batch pipeline writes fct_daily_ohlcv partitioned by price_date.
-    # Sensor pokes every 5 min, reschedules between polls (doesn't block a
-    # worker slot), times out after 4 hours.
-    wait_for_batch = BigQueryTablePartitionExistenceSensor(
-        task_id        = "wait_for_batch_pipeline",
-        project_id     = "{{ var.value.gcp_project }}",
-        dataset_id     = "{{ var.value.bq_dataset }}",
-        table_id       = "fct_daily_ohlcv",
-        partition_id   = "{{ ds_nodash }}",
-        gcp_conn_id    = "google_cloud_default",
-        poke_interval  = 300,
-        timeout        = 4 * 60 * 60,
-        mode           = "reschedule",
+    # The batch pipeline writes daily_bars (NOT partitioned). We use a SQL
+    # existence check instead of a partition sensor because the table has
+    # no BQ partition metadata. The query is parameterised by ds so it
+    # tracks today's logical date.
+    #
+    # Sensor pokes every 5 min, reschedules between polls (doesn't block
+    # a worker slot), times out after 4 hours.
+    wait_for_batch = BigQueryCheckOperator(
+        task_id     = "wait_for_batch_pipeline",
+        gcp_conn_id = "google_cloud_default",
+        use_legacy_sql = False,
+        sql         = (
+            "SELECT COUNT(*) > 0 "
+            "FROM `{{ var.value.gcp_project }}.{{ var.value.bq_dataset }}.daily_bars` "
+            "WHERE price_date = '{{ ds }}'"
+        ),
+        retries          = 24,            # 24 retries × 5 min = 2 hours of polling
+        retry_delay      = timedelta(minutes=5),
+        retry_exponential_backoff = False,
     )
 
     # ── 2. Bridge BQ → Snowflake (parallel) ────────────────────────────────
