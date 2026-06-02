@@ -41,8 +41,10 @@ with minute_bars as (
         trade_count,
         close_price
     from {{ source('gold', 'GOLD_MINUTE_BARS') }}
+    -- exclude pre-production test runs (see var docs in dbt_project.yml)
+    where event_date >= '{{ var("first_session_date") }}'
     -- regular session only: 09:30–16:00 ET inclusive
-    where time(convert_timezone('UTC', 'America/New_York', window_start))
+      and time(convert_timezone('UTC', 'America/New_York', window_start))
               between '09:30:00' and '16:00:00'
 ),
 

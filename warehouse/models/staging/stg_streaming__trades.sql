@@ -17,3 +17,5 @@ select
     trade_date,
     silver_timestamp
 from {{ source('gold', 'GOLD_TRADES') }}
+-- exclude pre-production test runs (see var docs in dbt_project.yml)
+where trade_date >= '{{ var("first_session_date") }}'

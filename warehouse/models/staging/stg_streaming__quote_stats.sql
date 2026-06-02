@@ -25,3 +25,5 @@ select
     order_imbalance,
     updated_at
 from {{ source('gold', 'GOLD_QUOTE_STATS') }}
+-- exclude pre-production test runs (see var docs in dbt_project.yml)
+where quote_date >= '{{ var("first_session_date") }}'

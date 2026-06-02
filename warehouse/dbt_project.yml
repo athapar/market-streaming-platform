@@ -6,6 +6,13 @@ version: '1.0.0'
 # warehouse — they must not collide in ~/.dbt/profiles.yml.
 profile: 'streaming_warehouse'
 
+vars:
+  # First full production session. 2026-05-26 was a pre-production smoke test
+  # (5 symbols, partial session, ingested ~24h late) whose ~24h batch lag and
+  # partial coverage would otherwise skew the health/quality/coverage metrics.
+  # Every model that reads the GOLD source filters to this date onward.
+  first_session_date: '2026-05-27'
+
 model-paths: ["models"]
 analysis-paths: ["analyses"]
 test-paths: ["tests"]
