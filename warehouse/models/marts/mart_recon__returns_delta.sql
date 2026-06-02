@@ -89,3 +89,7 @@ from streaming s
 full outer join batch b
     on  s.composite_figi = b.composite_figi
     and s.price_date     = b.price_date
+-- Anchor to the streaming window (see note in int_recon__daily_aligned):
+-- batch returns span ~20 years, but reconciliation only applies once streaming
+-- data exists.
+where coalesce(s.price_date, b.price_date) >= '{{ var("first_session_date") }}'

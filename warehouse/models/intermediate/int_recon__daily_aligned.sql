@@ -75,3 +75,7 @@ from streaming s
 full outer join batch b
     on  s.composite_figi = b.composite_figi
     and s.price_date     = b.price_date
+-- Anchor to the streaming window. Batch prices go back ~20 years; there is
+-- nothing to reconcile before streaming existed, and those batch-only rows
+-- would otherwise flood the mart (and the dashboard) with MISSING_STREAMING.
+where coalesce(s.price_date, b.price_date) >= '{{ var("first_session_date") }}'
