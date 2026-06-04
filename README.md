@@ -1,4 +1,4 @@
-# Real-Time Market Data Platform
+# Streaming Market Data Platform
 
 End-to-end market data platform with real-time ingest and micro-batch processing: Polygon.io WebSocket &rarr; Kafka &rarr; Spark Structured Streaming &rarr; Delta Lake medallion (Bronze/Silver/Gold) &rarr; Snowflake, capturing **~80M+ events across 104 symbols over three consecutive trading sessions** with 100% delivery reliability. A dbt reconciliation and analytics layer compares streaming OHLCV against batch BigQuery ground truth, live-prices TTM fundamental ratios, and surfaces microstructure, risk, and anomaly signals through an 8-page Streamlit dashboard.
 
