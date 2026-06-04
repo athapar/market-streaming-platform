@@ -1,20 +1,17 @@
 name: Deploy to Astro
 
-# Push to main triggers an automatic deploy. workflow_dispatch lets you
-# trigger manually from the GitHub Actions UI — useful when local Docker
-# Desktop / WSL is unreliable.
+# Manual-only. The Astro deploy requires an ACTIVE Astronomer organization;
+# while billing is inactive an auto-deploy on every push just fails and litters
+# the Actions tab with red X's. Trigger from the GitHub Actions UI ("Run
+# workflow") when needed. To restore auto-deploy once the Astro org is active,
+# re-add the push trigger below:
+#
+#   push:
+#     branches: [main]
+#     paths: ['dags/**', 'src/**', 'scripts/**', 'warehouse/**', 'Dockerfile',
+#             'requirements.txt', 'pyproject.toml',
+#             '.github/workflows/astro-deploy.yml']
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'dags/**'
-      - 'src/**'
-      - 'scripts/**'
-      - 'warehouse/**'
-      - 'Dockerfile'
-      - 'requirements.txt'
-      - 'pyproject.toml'
-      - '.github/workflows/astro-deploy.yml'
   workflow_dispatch:
 
 jobs:
