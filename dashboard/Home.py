@@ -22,8 +22,9 @@ compact_layout()
 heading("Market Streaming Pipeline")
 st.markdown(
     """
-    Real-time market data analytics platform ingesting **104 symbols** via
-    Polygon.io WebSocket, streaming through Kafka and Spark Structured Streaming
+    Real-time market data analytics platform ingesting a **104-symbol universe**
+    (S&P 100 + TSLA + SPY/QQQ/IWM/DIA; NBBO quote data on 20 high-liquidity names)
+    via Polygon.io WebSocket, streaming through Kafka and Spark Structured Streaming
     into a Delta Lake medallion architecture, with Snowflake serving layer
     and dbt-powered analytics. Fundamentals, dividends, and daily returns are
     bridged from a companion BigQuery batch pipeline.

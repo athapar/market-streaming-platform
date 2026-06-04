@@ -8,9 +8,26 @@
 /*
   Per (symbol, date) data quality checks computed from Gold.
   Each row gets a quality score (0-100) based on:
-    - completeness: bar_count / 390 expected bars (50%)
+    - completeness: bars present / bars expected *within the captured window*
+                    (first_bar → last_bar). This is the data-integrity metric —
+                    it catches dropped/missing minutes, NOT how long the producer
+                    ran. (50%)
     - validity: no nulls in critical fields, prices > 0, volume >= 0,
                 close within OHLC range, low <= high (50%)
+
+  completeness_pct vs session_coverage_pct — read this before trusting either:
+    The producer is started manually and captures a *partial* session window on
+    most days (e.g. 09:22–11:38 ET), by design — this is a portfolio pipeline,
+    not a 6.5h/day production system. Two different things were being conflated:
+
+      completeness_pct  = bar_count / minutes_in_captured_window  → "did we drop
+                          any bars while we were capturing?" (≈100% in practice)
+      session_coverage_pct = bar_count / 391 full-session minutes → "how much of
+                          the 09:30–16:00 ET session did we capture?" (low on
+                          partial-session days — expected, NOT a defect)
+
+    Only completeness (integrity) feeds the quality score. session_coverage is
+    reported alongside so a partial run is not penalised for being short.
 
   Note: batch ingest lag (window_start → silver_timestamp) is reported as an
   observability column but deliberately excluded from the quality score. The
@@ -46,7 +63,6 @@ checks as (
         event_date,
 
         count(*)                                          as bar_count,
-        round(count(*) * 100.0 / 390, 2)                 as completeness_pct,
 
         -- validity: count of bars failing basic checks
         count(case when close_price is null or close_price <= 0 then 1 end)
@@ -74,7 +90,7 @@ checks as (
     group by symbol, composite_figi, event_date
 ),
 
-scored as (
+derived as (
     select
         *,
         -- total invalid bars
@@ -82,28 +98,36 @@ scored as (
          + close_outside_range + open_outside_range + invalid_vwap)
                                                           as total_invalid_bars,
 
+        -- minutes spanned by the captured window (1 bar/min, inclusive)
+        datediff('minute', first_bar, last_bar) + 1       as expected_bars_in_window,
+
+        -- in-window completeness (the integrity metric): bars present / bars
+        -- expected within the captured window. ~100% unless minutes were dropped.
+        least(round(
+            bar_count * 100.0
+            / nullif(datediff('minute', first_bar, last_bar) + 1, 0), 2
+        ), 100)                                           as completeness_pct,
+
+        -- session coverage: fraction of the full 09:30–16:00 ET session captured.
+        -- Low on partial-session days *by design* — reported, not scored.
+        least(round(bar_count * 100.0 / 391, 2), 100)     as session_coverage_pct,
+
         -- validity pct (bars passing all checks / total bars)
         round(
             (bar_count - (null_or_negative_close + invalid_volume + high_lt_low
              + close_outside_range + open_outside_range))
             * 100.0 / nullif(bar_count, 0), 2
-        )                                                 as validity_pct,
-
-        -- overall quality score: completeness 50%, validity 50%
-        -- (batch lag deliberately excluded — see header note)
-        round(
-            least(completeness_pct, 100) * 0.50
-            + (case
-                when (null_or_negative_close + invalid_volume + high_lt_low
-                      + close_outside_range + open_outside_range) = 0
-                then 100.0
-                else greatest(0,
-                    100.0 - (null_or_negative_close + invalid_volume + high_lt_low
-                             + close_outside_range + open_outside_range)
-                    * 100.0 / nullif(bar_count, 0))
-               end) * 0.50
-        , 2)                                              as quality_score
+        )                                                 as validity_pct
     from checks
+),
+
+scored as (
+    select
+        *,
+        -- overall quality score: in-window completeness 50%, validity 50%.
+        -- (session coverage and batch lag deliberately excluded — see header.)
+        round(completeness_pct * 0.50 + validity_pct * 0.50, 2) as quality_score
+    from derived
 )
 
 select
@@ -111,7 +135,9 @@ select
     symbol,
     event_date,
     bar_count,
+    expected_bars_in_window,
     completeness_pct,
+    session_coverage_pct,
     validity_pct,
     quality_score,
 

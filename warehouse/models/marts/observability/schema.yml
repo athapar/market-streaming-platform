@@ -38,11 +38,14 @@ models:
 
   - name: mart_ops__data_quality
     description: >
-      Per (symbol, date) data quality scorecard. Checks completeness (bar count
-      vs 390 expected) and validity (prices > 0, high >= low, close within OHLC).
-      Overall quality_score is a 0-100 composite: completeness 50%, validity 50%.
-      Batch ingest lag is reported (avg/max_batch_lag_s) but excluded from the
-      score — it reflects the availableNow batch cadence, not a data defect.
+      Per (symbol, date) data quality scorecard. quality_score is a 0-100
+      composite of in-window completeness (50%) and validity (50%). Completeness
+      is measured against the *captured window* (first→last bar), not the full
+      session, so it scores data integrity (dropped minutes) rather than how long
+      the producer ran. session_coverage_pct reports the partial-vs-full session
+      fraction separately and is NOT scored. Batch ingest lag is reported
+      (avg/max_batch_lag_s) but excluded — it reflects the availableNow batch
+      cadence, not a data defect.
     columns:
       - name: symbol
         tests: [not_null]
@@ -50,8 +53,19 @@ models:
         tests: [not_null]
       - name: quality_score
         description: >
-          Weighted quality score 0-100. Weights: completeness 50%, validity 50%.
+          Weighted quality score 0-100. Weights: in-window completeness 50%,
+          validity 50%. Session coverage and batch lag are excluded.
       - name: completeness_pct
-        description: bar_count / 390 × 100. Full session = ~100%.
+        description: >
+          In-window completeness: bars present / bars expected within the
+          captured window (first→last bar). Measures dropped/missing minutes,
+          not session length. ~100% when no bars were lost during capture.
+      - name: session_coverage_pct
+        description: >
+          bar_count / 391 full-session minutes × 100, capped at 100. How much of
+          the 09:30–16:00 ET session was captured. Low on partial-session days by
+          design (producer is run for a window) — reported, not scored.
+      - name: expected_bars_in_window
+        description: Minutes spanned by the captured window (first→last bar, inclusive).
       - name: validity_pct
         description: Percentage of bars passing all validity checks.

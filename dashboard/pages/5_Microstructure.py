@@ -61,11 +61,15 @@ day_df = df[df["trade_date"] == selected_date]
 # --- KPIs ---
 spread_df = day_df[day_df["avg_spread_bps"].notna()]
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Symbols",       len(day_df))
+k1.metric("Active Symbols", len(day_df),
+          help="Symbols with trading activity this day (of a 104-name universe; "
+               "one name is inactive).")
 k2.metric("Total Trades",  f"{day_df['trade_count'].sum():,.0f}")
 k3.metric("$-Volume",      f"${day_df['total_dollar_volume'].sum() / 1e9:,.2f}B")
 k4.metric("Avg Spread",    f"{spread_df['avg_spread_bps'].mean():.2f} bps" if not spread_df.empty else "N/A")
-k5.metric("Quoted Syms",   len(spread_df))
+k5.metric("Quoted Symbols", len(spread_df),
+          help="High-liquidity names subscribed to NBBO quote data (20 of the "
+               "104-symbol universe). Spread metrics are computed only for these.")
 
 
 def _tight(fig, height=250):

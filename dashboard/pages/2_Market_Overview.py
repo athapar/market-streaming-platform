@@ -40,7 +40,9 @@ day_df["return_pct"] = day_df["daily_simple_return"] * 100
 
 # --- KPIs (4 metric tiles) ---
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Symbols",          len(day_df))
+k1.metric("Active Symbols",   len(day_df),
+          help="Symbols with trading activity this day (of a 104-name universe; "
+               "one name is inactive). NBBO quote-level data covers 20 of them.")
 k2.metric("Avg Return",       f"{day_df['return_pct'].mean():.2f}%")
 k3.metric("Up / Down",        f"{(day_df['return_pct'] > 0).sum()} / {(day_df['return_pct'] < 0).sum()}")
 k4.metric("Avg Realized Vol", f"{day_df['realized_vol_ann_pct'].mean():.1f}%")

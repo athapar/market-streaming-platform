@@ -56,11 +56,27 @@ with date_col:
 day_dq = dq[dq["event_date"] == selected_date]
 
 # --- KPIs ---
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Avg Quality",       f"{day_dq['quality_score'].mean():.1f}")
-k2.metric("Avg Completeness",  f"{day_dq['completeness_pct'].mean():.1f}%")
-k3.metric("Avg Validity",      f"{day_dq['validity_pct'].mean():.1f}%")
-k4.metric("Total Invalid Bars", int(day_dq["total_invalid_bars"].sum()))
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Avg Quality",      f"{day_dq['quality_score'].mean():.1f}",
+          help="Composite 0–100: in-window completeness 50% + validity 50%. "
+               "Session coverage is excluded.")
+k2.metric("Completeness",     f"{day_dq['completeness_pct'].mean():.1f}%",
+          help="Bars present ÷ bars expected *within the captured window* "
+               "(first→last bar). Measures dropped minutes, not session length.")
+k3.metric("Validity",         f"{day_dq['validity_pct'].mean():.1f}%",
+          help="Bars passing all OHLCV sanity checks (price > 0, low ≤ high, "
+               "close within range).")
+k4.metric("Session Coverage", f"{day_dq['session_coverage_pct'].mean():.1f}%",
+          help="Share of the full 09:30–16:00 ET session captured. Low when the "
+               "producer ran a partial window — by design, not a data defect.")
+k5.metric("Invalid Bars",     int(day_dq["total_invalid_bars"].sum()))
+
+st.caption(
+    "**Completeness** = integrity *within the captured window* (did we drop any "
+    "minutes?). **Session Coverage** = how much of the 09:30–16:00 session the "
+    "producer ran — partial by design on most days. Only completeness and "
+    "validity feed the quality score; session length does not penalize it."
+)
 
 
 def _tight(fig, height=200):
@@ -78,6 +94,7 @@ c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
     heading("Quality Score Distribution", 3)
     fig_hist = px.histogram(day_dq, x="quality_score", nbins=20,
+                            range_x=[0, 100],
                             color_discrete_sequence=["#636EFA"])
     fig_hist.update_layout(xaxis_title=None, yaxis_title=None)
     st.plotly_chart(_tight(fig_hist), use_container_width=True)
@@ -103,17 +120,21 @@ with c2:
 with c3:
     heading("Lowest Quality (top 10)", 3)
     worst = day_dq.nsmallest(10, "quality_score")[
-        ["symbol", "quality_score", "completeness_pct", "validity_pct"]
+        ["symbol", "quality_score", "completeness_pct", "validity_pct",
+         "session_coverage_pct"]
     ].reset_index(drop=True)
-    worst.columns = ["Sym", "Qual", "Compl %", "Val %"]
+    worst.columns = ["Sym", "Qual", "Compl %", "Val %", "Cover %"]
     st.dataframe(worst, use_container_width=True, hide_index=True, height=280)
 
-# --- Row 2: completeness bars (full width since long list) ---
-heading("Completeness by Symbol", 3)
+# --- Row 2: in-window completeness bars (full width since long list) ---
+heading("In-Window Completeness by Symbol", 3)
+st.caption("Bars present vs expected within each symbol's captured window — the "
+           "integrity check. Near 100% means no minutes were dropped during capture.")
 sorted_dq = day_dq.sort_values("completeness_pct")
 fig_comp = px.bar(
     sorted_dq, x="completeness_pct", y="symbol", orientation="h",
     color="completeness_pct", color_continuous_scale="RdYlGn",
+    range_x=[0, 100], range_color=[0, 100],
 )
 fig_comp.update_layout(
     height=max(280, len(sorted_dq) * 11),
