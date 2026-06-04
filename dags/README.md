@@ -1,8 +1,16 @@
-# Airflow DAGs (Astronomer / Astro Cloud)
+# Airflow DAGs (Astronomer / Astro Runtime)
 
-Production orchestration for the end-of-day chain. Deployed on Astro Cloud.
+Orchestration for the end-of-day chain, built for Astro Runtime (Airflow 3.2.1).
 The intraday streaming layer stays on Databricks Workflows; the Kafka producer
 stays on Windows Task Scheduler (local) or a small VM.
+
+> **CI validation, not a live cloud deployment.** The DAGs are validated on
+> every push by the `dag-validation` job in
+> [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which runs
+> `astro dev parse` against the real Astro Runtime image — building the project
+> and running the DAG-integrity test with no Astro account or paid deployment.
+> Deploying to Astro Cloud (steps below) is optional and only needed for an
+> actually-scheduled, hosted run.
 
 ## DAGs
 
