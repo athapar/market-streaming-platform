@@ -25,7 +25,17 @@
 */
 
 with streaming as (
-    select * from {{ ref('stg_streaming__daily_rollup') }}
+    select
+        s.*,
+        -- pin the close to the regular-session 16:00 bar (the rollup close
+        -- includes post-market prints ~5-9 bps off the official close; see
+        -- int_streaming__session_close). Keeps close recon like-for-like
+        -- against the batch official close.
+        coalesce(sc.session_close, s.close_price) as session_close
+    from {{ ref('stg_streaming__daily_rollup') }} s
+    left join {{ ref('int_streaming__session_close') }} sc
+        on  s.composite_figi = sc.composite_figi
+        and s.price_date     = sc.price_date
 ),
 
 batch as (
@@ -42,7 +52,7 @@ select
     s.open_price                                   as s_open,
     s.high_price                                   as s_high,
     s.low_price                                    as s_low,
-    s.close_price                                  as s_close,
+    s.session_close                                as s_close,
     s.volume                                       as s_volume,
     s.vwap                                         as s_vwap,
     s.total_trades                                 as s_total_trades,

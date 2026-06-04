@@ -54,3 +54,23 @@ jobs:
         run: |
           cp profiles.example.yml profiles.yml
           dbt parse --profiles-dir . --profile streaming_warehouse --target ci
+
+  dag-validation:
+    # Validates the Airflow DAGs against the *real* runtime the project ships
+    # (Astro Runtime 3.2-4 / Airflow 3.2.1, per the root Dockerfile) without a
+    # paid Astro Cloud deployment. `astro dev *` commands run entirely locally:
+    # no Astro account, API token, or secrets required.
+    name: Validate DAGs (Astro runtime)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Astro CLI
+        run: curl -sSL https://install.astronomer.io | sudo bash -s
+
+      # Builds the project image from the Dockerfile, then runs the DAG
+      # integrity test in .astro/ (DagBag import check — no cycles, no broken
+      # imports, all task dependencies resolve). Connections/Variables/env vars
+      # are monkeypatched to mocks, so it passes with zero configured secrets.
+      - name: Parse DAGs in the Astro runtime
+        run: astro dev parse

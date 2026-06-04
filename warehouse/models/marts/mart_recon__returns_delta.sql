@@ -21,12 +21,23 @@
 
   recon_status taxonomy
   ─────────────────────
-  OK                  Both present, |Δreturn| ≤ 5 bps (5e-4).
-  RETURN_MISMATCH     Both present, |Δreturn| > 5 bps. Typically a partial
-                      streaming session — see session_coverage in the daily
-                      delta mart for context.
+  OK                  Both present, |Δreturn| ≤ 50 bps (5e-3).
+  RETURN_MISMATCH     Both present, |Δreturn| > 50 bps.
   MISSING_STREAMING   Batch only.
   MISSING_BATCH       Streaming only.
+
+  Tolerance rationale (50 bps)
+  ────────────────────────────
+  Streaming and batch use *independent* close-price sources: streaming's close
+  is the last regular-session minute-bar print (~16:00 continuous trade), batch's
+  is the official consolidated/closing-auction price. A daily return divides two
+  closes, so it compounds the per-day source difference across BOTH days. At a 5
+  bps tolerance the median |Δreturn| (~4 bps) sat right on the line and flagged
+  ~half the universe on close-source noise, not error. 50 bps separates genuine
+  per-symbol divergences (the tail) from that structural cross-source noise.
+  (The streaming close is also pinned to the regular-session 16:00 bar upstream —
+  see int_streaming__session_close — which removes the post-market-skew component
+  of that noise.)
 */
 
 with streaming as (
@@ -79,7 +90,7 @@ select
     case
         when s.composite_figi is null then 'MISSING_STREAMING'
         when b.composite_figi is null then 'MISSING_BATCH'
-        when abs(s.streaming_return - b.batch_return) > 0.0005 then 'RETURN_MISMATCH'
+        when abs(s.streaming_return - b.batch_return) > 0.0050 then 'RETURN_MISMATCH'
         else 'OK'
     end                                            as recon_status,
 
