@@ -5,7 +5,11 @@ import os
 from contextlib import contextmanager
 
 import pytest
-from airflow.models import DagBag
+
+# DAG-integrity checks need Airflow, which the lightweight package CI does not
+# install. Skip this module when Airflow is absent (it runs in the Astro project
+# environment via `astro dev pytest`) instead of erroring the whole test run.
+DagBag = pytest.importorskip("airflow.models").DagBag
 
 
 @contextmanager
