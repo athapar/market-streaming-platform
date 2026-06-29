@@ -24,11 +24,13 @@ recon = [
     "dbt-core>=1.8",
     "dbt-snowflake>=1.8",
     "snowflake-connector-python>=3.10",
+    "cryptography>=42",
 ]
 dashboard = [
     "streamlit>=1.35",
     "plotly>=5.22",
     "snowflake-connector-python>=3.10",
+    "cryptography>=42",
     "pandas>=2.2",
 ]
 dev = [

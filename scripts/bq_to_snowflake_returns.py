@@ -22,8 +22,8 @@ import sys
 import pandas as pd
 from google.cloud import bigquery
 
-from market_streaming.config import optional_env, require_env
-from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, execute_sql
+from market_streaming.config import require_env
+from market_streaming.sync.snowflake_writer import apply_ddl, connect_from_env, execute_sql
 
 
 SF_TABLE = "BATCH_DAILY_RETURNS"
@@ -58,15 +58,7 @@ def fetch() -> pd.DataFrame:
 def load(df: pd.DataFrame) -> int:
     from snowflake.connector.pandas_tools import write_pandas
 
-    conn = build_connection(
-        account   = require_env("SNOWFLAKE_ACCOUNT"),
-        user      = require_env("SNOWFLAKE_USER"),
-        password  = require_env("SNOWFLAKE_PASSWORD"),
-        warehouse = require_env("SNOWFLAKE_WAREHOUSE"),
-        database  = "MARKET_STREAMING",
-        schema    = "RECON",
-        role      = optional_env("SNOWFLAKE_ROLE"),
-    )
+    conn = connect_from_env(database="MARKET_STREAMING", schema="RECON")
     try:
         apply_ddl(conn)
         execute_sql(conn, f"TRUNCATE TABLE IF EXISTS {SF_TABLE}")

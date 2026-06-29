@@ -35,7 +35,7 @@ if f"{repo_root}/src" not in sys.path:
 
 # COMMAND ----------
 from market_streaming.sync.snowflake_writer import (
-    SNOWFLAKE_DDL, build_connection, execute_sql, sync_table,
+    SNOWFLAKE_DDL, build_connection, execute_sql, load_private_key, sync_table,
 )
 print("import ok")
 
@@ -45,11 +45,12 @@ print("import ok")
 # MAGIC
 # MAGIC Run from your **local terminal** (Databricks CLI):
 # MAGIC ```bash
-# MAGIC databricks secrets put-secret market-streaming snowflake-account   --string-value "abc12345.us-east-1"
-# MAGIC databricks secrets put-secret market-streaming snowflake-user      --string-value "STREAMING_USER"
-# MAGIC databricks secrets put-secret market-streaming snowflake-password  --string-value "..."
-# MAGIC databricks secrets put-secret market-streaming snowflake-warehouse --string-value "COMPUTE_WH"
-# MAGIC databricks secrets put-secret market-streaming snowflake-role      --string-value "SYSADMIN"
+# MAGIC databricks secrets put-secret market-streaming snowflake-account     --string-value "myorg-ab12345"
+# MAGIC databricks secrets put-secret market-streaming snowflake-user        --string-value "SVC_STREAMING"
+# MAGIC # private key: pipe the .p8 file contents in as the secret value
+# MAGIC databricks secrets put-secret market-streaming snowflake-private-key --string-value "$(cat rsa_key.p8)"
+# MAGIC databricks secrets put-secret market-streaming snowflake-warehouse   --string-value "COMPUTE_WH"
+# MAGIC databricks secrets put-secret market-streaming snowflake-role        --string-value "STREAMING_ROLE"
 # MAGIC ```
 # MAGIC Your Snowflake account identifier is on the Snowflake login page, format:
 # MAGIC `orgname-accountname` (e.g. `myorg-ab12345`) — use that, not the full URL.
@@ -72,11 +73,11 @@ daily_table   = dbutils.widgets.get("daily_table")
 sf_database   = dbutils.widgets.get("sf_database")
 sf_schema     = dbutils.widgets.get("sf_schema")
 
-sf_account    = dbutils.secrets.get(scope=scope, key="snowflake-account")
-sf_user       = dbutils.secrets.get(scope=scope, key="snowflake-user")
-sf_password   = dbutils.secrets.get(scope=scope, key="snowflake-password")
-sf_warehouse  = dbutils.secrets.get(scope=scope, key="snowflake-warehouse")
-sf_role       = dbutils.secrets.get(scope=scope, key="snowflake-role")
+sf_account     = dbutils.secrets.get(scope=scope, key="snowflake-account")
+sf_user        = dbutils.secrets.get(scope=scope, key="snowflake-user")
+sf_private_key = load_private_key(pem=dbutils.secrets.get(scope=scope, key="snowflake-private-key"))
+sf_warehouse   = dbutils.secrets.get(scope=scope, key="snowflake-warehouse")
+sf_role        = dbutils.secrets.get(scope=scope, key="snowflake-role")
 
 print(f"Snowflake account : [redacted — set]")
 print(f"minute_table      : {minute_table}")
@@ -88,7 +89,7 @@ print(f"daily_table       : {daily_table}")
 # COMMAND ----------
 # Run this cell once. It is idempotent (CREATE IF NOT EXISTS throughout).
 conn = build_connection(
-    account=sf_account, user=sf_user, password=sf_password,
+    account=sf_account, user=sf_user, private_key=sf_private_key,
     warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
     role=sf_role,
 )
@@ -111,7 +112,7 @@ print("DDL complete")
 
 # COMMAND ----------
 conn = build_connection(
-    account=sf_account, user=sf_user, password=sf_password,
+    account=sf_account, user=sf_user, private_key=sf_private_key,
     warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
     role=sf_role,
 )
@@ -128,7 +129,7 @@ finally:
 
 # COMMAND ----------
 conn = build_connection(
-    account=sf_account, user=sf_user, password=sf_password,
+    account=sf_account, user=sf_user, private_key=sf_private_key,
     warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
     role=sf_role,
 )
@@ -150,7 +151,7 @@ finally:
 trades_table = f"{dbutils.widgets.get('target_catalog')}.{dbutils.widgets.get('target_schema')}.gold_trades"
 
 conn = build_connection(
-    account=sf_account, user=sf_user, password=sf_password,
+    account=sf_account, user=sf_user, private_key=sf_private_key,
     warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
     role=sf_role,
 )
@@ -173,7 +174,7 @@ finally:
 quote_stats_table = f"{dbutils.widgets.get('target_catalog')}.{dbutils.widgets.get('target_schema')}.gold_quote_stats"
 
 conn = build_connection(
-    account=sf_account, user=sf_user, password=sf_password,
+    account=sf_account, user=sf_user, private_key=sf_private_key,
     warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
     role=sf_role,
 )
@@ -192,7 +193,7 @@ finally:
 
 # COMMAND ----------
 conn = build_connection(
-    account=sf_account, user=sf_user, password=sf_password,
+    account=sf_account, user=sf_user, private_key=sf_private_key,
     warehouse=sf_warehouse, database=sf_database, schema=sf_schema,
     role=sf_role,
 )
@@ -239,7 +240,7 @@ dbutils.widgets.text("loop_seconds", "30", "Seconds between sync passes")
 def sync_small_tables() -> None:
     """One pass: full-replace the three small Gold tables into Snowflake."""
     conn = build_connection(
-        account=sf_account, user=sf_user, password=sf_password,
+        account=sf_account, user=sf_user, private_key=sf_private_key,
         warehouse=sf_warehouse, database=sf_database, schema=sf_schema, role=sf_role,
     )
     try:

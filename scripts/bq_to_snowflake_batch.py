@@ -30,7 +30,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 from market_streaming.config import load_symbols, require_env, optional_env
-from market_streaming.sync.snowflake_writer import apply_ddl, build_connection, execute_sql
+from market_streaming.sync.snowflake_writer import apply_ddl, connect_from_env, execute_sql
 
 
 # ---------------------------------------------------------------------------
@@ -118,15 +118,7 @@ def fetch_all_batch_prices() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def _sf_conn():
-    return build_connection(
-        account   = require_env("SNOWFLAKE_ACCOUNT"),
-        user      = require_env("SNOWFLAKE_USER"),
-        password  = require_env("SNOWFLAKE_PASSWORD"),
-        warehouse = require_env("SNOWFLAKE_WAREHOUSE"),
-        database  = "MARKET_STREAMING",
-        schema    = "RECON",
-        role      = optional_env("SNOWFLAKE_ROLE"),
-    )
+    return connect_from_env(database="MARKET_STREAMING", schema="RECON")
 
 
 def load_to_snowflake(df: pd.DataFrame, price_date: date) -> int:

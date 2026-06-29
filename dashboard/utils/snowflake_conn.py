@@ -6,7 +6,10 @@ Credential resolution order (first hit wins):
   2. os.environ                 — local dev via .env, CI, etc.
 
 Both surfaces support the same keys: SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER,
-SNOWFLAKE_PASSWORD, SNOWFLAKE_WAREHOUSE, SNOWFLAKE_ROLE (optional).
+SNOWFLAKE_WAREHOUSE, SNOWFLAKE_ROLE (optional), and the private key as either
+SNOWFLAKE_PRIVATE_KEY (PEM text) or SNOWFLAKE_PRIVATE_KEY_PATH (file path),
+with SNOWFLAKE_PRIVATE_KEY_PASSPHRASE only if the key is encrypted. Auth is
+key-pair (RSA) — required for programmatic access once the account enforces MFA.
 """
 from __future__ import annotations
 
@@ -41,15 +44,50 @@ def _secret(key: str, *, required: bool = True) -> str | None:
     return val
 
 
+def _load_private_key() -> bytes:
+    """Load the RSA private key (PEM) into the PKCS#8 DER bytes the connector wants.
+
+    Resolves the key from SNOWFLAKE_PRIVATE_KEY (PEM text — the form used in
+    Streamlit Cloud's Secrets UI) first, falling back to
+    SNOWFLAKE_PRIVATE_KEY_PATH (a local .p8 path for dev). Set
+    SNOWFLAKE_PRIVATE_KEY_PASSPHRASE only if the key is encrypted.
+    """
+    from cryptography.hazmat.primitives import serialization
+
+    pem = _secret("SNOWFLAKE_PRIVATE_KEY", required=False)
+    path = _secret("SNOWFLAKE_PRIVATE_KEY_PATH", required=False)
+    passphrase = _secret("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE", required=False)
+
+    if pem:
+        data = pem.encode()
+    elif path:
+        with open(path, "rb") as f:
+            data = f.read()
+    else:
+        raise RuntimeError(
+            "missing private key: set SNOWFLAKE_PRIVATE_KEY (PEM text) under "
+            "[snowflake] in Streamlit Cloud secrets, or SNOWFLAKE_PRIVATE_KEY_PATH locally"
+        )
+
+    key = serialization.load_pem_private_key(
+        data, password=passphrase.encode() if passphrase else None
+    )
+    return key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
 @lru_cache(maxsize=1)
 def _get_connection_params() -> dict:
     return dict(
-        account   = _secret("SNOWFLAKE_ACCOUNT"),
-        user      = _secret("SNOWFLAKE_USER"),
-        password  = _secret("SNOWFLAKE_PASSWORD"),
-        warehouse = _secret("SNOWFLAKE_WAREHOUSE"),
-        database  = "MARKET_STREAMING",
-        role      = _secret("SNOWFLAKE_ROLE", required=False),
+        account     = _secret("SNOWFLAKE_ACCOUNT"),
+        user        = _secret("SNOWFLAKE_USER"),
+        private_key = _load_private_key(),
+        warehouse   = _secret("SNOWFLAKE_WAREHOUSE"),
+        database    = "MARKET_STREAMING",
+        role        = _secret("SNOWFLAKE_ROLE", required=False),
     )
 
 

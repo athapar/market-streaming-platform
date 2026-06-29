@@ -27,18 +27,11 @@ from market_streaming.observability.alerts import (
     alert_quality_drop,
     alert_recon_mismatch,
 )
+from market_streaming.sync.snowflake_writer import connect_from_env
 
 
 def _get_connection():
-    import snowflake.connector
-    return snowflake.connector.connect(
-        account=os.environ["SNOWFLAKE_ACCOUNT"],
-        user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
-        warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-        database="MARKET_STREAMING",
-        role=os.getenv("SNOWFLAKE_ROLE"),
-    )
+    return connect_from_env(database="MARKET_STREAMING")
 
 
 def _query(conn, sql: str) -> list:

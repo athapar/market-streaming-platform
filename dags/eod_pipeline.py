@@ -27,8 +27,12 @@ Required Airflow Connections:
     slack_default        — Slack incoming webhook (HTTP conn type, password = URL)
 
 Required environment variables (set in the Astro deployment):
-    SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD,
+    SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER,
     SNOWFLAKE_WAREHOUSE, SNOWFLAKE_ROLE, SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA
+    SNOWFLAKE_PRIVATE_KEY_PATH  — path to the .p8 RSA key; one var drives both the
+        bridge scripts (connect_from_env) and dbt (private_key_path in profiles.yml).
+        Materialize it from a secret the same way as the GCP cred below, or mount
+        the file. SNOWFLAKE_PRIVATE_KEY_PASSPHRASE only if the key is encrypted.
     GOOGLE_CLOUD_PROJECT, BQ_DATASET_ID
     GOOGLE_APPLICATION_CREDENTIALS_JSON  — raw service-account JSON string
 """

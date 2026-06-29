@@ -43,10 +43,14 @@ streamlit run dashboard/Home.py
    ```toml
    [snowflake]
    SNOWFLAKE_ACCOUNT   = "myorg-ab12345"
-   SNOWFLAKE_USER      = "STREAMING_DASHBOARD_USER"
-   SNOWFLAKE_PASSWORD  = "..."
+   SNOWFLAKE_USER      = "SVC_STREAMING"
+   SNOWFLAKE_PRIVATE_KEY = """
+   -----BEGIN PRIVATE KEY-----
+   ...
+   -----END PRIVATE KEY-----
+   """
    SNOWFLAKE_WAREHOUSE = "COMPUTE_WH"
-   SNOWFLAKE_ROLE      = "SYSADMIN"
+   SNOWFLAKE_ROLE      = "STREAMING_ROLE"
    ```
 5. Click **Deploy**. Streamlit Cloud picks up `dashboard/requirements.txt`
    automatically. First build takes ~3 minutes; subsequent re-deploys are

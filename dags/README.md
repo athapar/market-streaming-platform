@@ -97,7 +97,7 @@ astro deployment create
 **Environment variables** (Deployment → Environment Variables tab, mark Secret):
 - `SNOWFLAKE_ACCOUNT`
 - `SNOWFLAKE_USER`
-- `SNOWFLAKE_PASSWORD`
+- `SNOWFLAKE_PRIVATE_KEY_PATH` (one var for both bridges + dbt; `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` only if encrypted)
 - `SNOWFLAKE_WAREHOUSE`
 - `SNOWFLAKE_ROLE`
 - `SNOWFLAKE_DATABASE` (= `MARKET_STREAMING`)

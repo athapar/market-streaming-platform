@@ -8,12 +8,13 @@
 #
 # All secrets are read from environment variables — never hardcode credentials.
 #
-# Required env vars:
-#   SNOWFLAKE_ACCOUNT    e.g. myorg-ab12345
-#   SNOWFLAKE_USER
-#   SNOWFLAKE_PASSWORD
-#   SNOWFLAKE_WAREHOUSE  e.g. COMPUTE_WH
-#   SNOWFLAKE_ROLE       e.g. SYSADMIN  (optional — defaults to user's default role)
+# Required env vars (key-pair auth — see README for service-user setup):
+#   SNOWFLAKE_ACCOUNT             e.g. myorg-ab12345
+#   SNOWFLAKE_USER                e.g. SVC_STREAMING
+#   SNOWFLAKE_PRIVATE_KEY_PATH    path to the .p8 private key
+#   SNOWFLAKE_PRIVATE_KEY_PASSPHRASE  (optional — only if the key is encrypted)
+#   SNOWFLAKE_WAREHOUSE           e.g. COMPUTE_WH
+#   SNOWFLAKE_ROLE               e.g. STREAMING_ROLE  (optional — defaults to user's default role)
 
 streaming_warehouse:
   target: dev
@@ -22,7 +23,8 @@ streaming_warehouse:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE', '') }}"
       database: MARKET_STREAMING

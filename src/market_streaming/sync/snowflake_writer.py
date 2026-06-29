@@ -38,29 +38,109 @@ if TYPE_CHECKING:
     from pyspark.sql import DataFrame
 
 
+def load_private_key(
+    pem: str | bytes | None = None,
+    path: str | None = None,
+    passphrase: str | None = None,
+) -> bytes:
+    """Load an RSA private key and return it as DER bytes for the connector.
+
+    Accepts the key either inline as PEM text (``pem`` — e.g. from a secret
+    store) or as a file path (``path``). ``passphrase`` is required only for an
+    encrypted key. The snowflake connector's ``private_key`` parameter wants
+    PKCS#8 DER bytes, which is what this returns.
+    """
+    from cryptography.hazmat.primitives import serialization
+
+    if pem:
+        data = pem.encode() if isinstance(pem, str) else pem
+    elif path:
+        with open(path, "rb") as f:
+            data = f.read()
+    else:
+        raise RuntimeError(
+            "no private key provided: set SNOWFLAKE_PRIVATE_KEY (PEM text) or "
+            "SNOWFLAKE_PRIVATE_KEY_PATH (file path)"
+        )
+
+    key = serialization.load_pem_private_key(
+        data, password=passphrase.encode() if passphrase else None
+    )
+    return key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
 def build_connection(
     account: str,
     user: str,
-    password: str,
-    warehouse: str,
-    database: str,
-    schema: str,
+    password: str | None = None,
+    warehouse: str | None = None,
+    database: str | None = None,
+    schema: str | None = None,
     role: str | None = None,
+    private_key: bytes | None = None,
 ) -> "snowflake.connector.SnowflakeConnection":
-    """Open and return a Snowflake connection."""
+    """Open and return a Snowflake connection.
+
+    Authenticates with key-pair (``private_key`` DER bytes from
+    :func:`load_private_key`) when provided, otherwise falls back to
+    ``password``. Key-pair is the supported path for programmatic access once
+    MFA is enforced on the account.
+    """
     import snowflake.connector
 
     params: dict = dict(
         account=account,
         user=user,
-        password=password,
         warehouse=warehouse,
         database=database,
         schema=schema,
     )
+    if private_key is not None:
+        params["private_key"] = private_key
+    elif password is not None:
+        params["password"] = password
+    else:
+        raise RuntimeError("build_connection requires either private_key or password")
     if role:
         params["role"] = role
     return snowflake.connector.connect(**params)
+
+
+def connect_from_env(
+    database: str = "MARKET_STREAMING",
+    schema: str | None = None,
+) -> "snowflake.connector.SnowflakeConnection":
+    """Open a key-pair Snowflake connection from standard env vars.
+
+    Single entry point shared by every server-side caller (bridge scripts,
+    notebooks) so they all use the same service identity and key. Reads:
+
+        SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_WAREHOUSE   (required)
+        SNOWFLAKE_PRIVATE_KEY      PEM text, OR
+        SNOWFLAKE_PRIVATE_KEY_PATH path to the .p8 file          (one required)
+        SNOWFLAKE_PRIVATE_KEY_PASSPHRASE                         (only if encrypted)
+        SNOWFLAKE_ROLE                                           (optional)
+    """
+    import os
+
+    pk = load_private_key(
+        pem=os.getenv("SNOWFLAKE_PRIVATE_KEY"),
+        path=os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"),
+        passphrase=os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"),
+    )
+    return build_connection(
+        account=os.environ["SNOWFLAKE_ACCOUNT"],
+        user=os.environ["SNOWFLAKE_USER"],
+        warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+        database=database,
+        schema=schema,
+        role=os.getenv("SNOWFLAKE_ROLE"),
+        private_key=pk,
+    )
 
 
 def _coerce(val, dtype):
