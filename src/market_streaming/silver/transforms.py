@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pyspark import StorageLevel
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     DoubleType,
@@ -210,38 +209,35 @@ def merge_silver_batch(
     spark = batch_df.sparkSession
 
     def _do_merge(tracker=None):
-        # OPT-4: struct-max dedup (no window sort). OPT-2: cache once so the
-        # parse + FIGI-join + dedup lineage isn't recomputed for the rows_out
-        # count and again for the MERGE — and drop the separate isEmpty()/count()
-        # actions (count() handles the empty case).
-        deduped = dedup_keep_latest(batch_df, MERGE_KEYS).persist(
-            StorageLevel.MEMORY_AND_DISK
-        )
-        try:
-            rows_out = deduped.count()
-            if rows_out == 0:
-                if tracker:
-                    tracker.record(rows_in=0, rows_out=0)
-                return
+        # OPT-4: struct-max dedup (no window sort). We deliberately do NOT
+        # persist() the result — PERSIST/cache is rejected on Databricks
+        # serverless compute ([NOT_SUPPORTED_WITH_SERVERLESS]). The micro-batch
+        # source is checkpoint-backed, so recomputing it for the count + MERGE
+        # is acceptable; OPT-2's win here is dropping the extra isEmpty() action.
+        deduped = dedup_keep_latest(batch_df, MERGE_KEYS)
 
+        rows_out = deduped.count()
+        if rows_out == 0:
             if tracker:
-                # Pre-dedup input count — only computed when metrics are on.
-                tracker.record(rows_in=batch_df.count(), rows_out=rows_out)
+                tracker.record(rows_in=0, rows_out=0)
+            return
 
-            dt = DeltaTable.forName(spark, target_table)
-            # OPT-3: lead with the partition column so Delta prunes partitions.
-            (
-                dt.alias("tgt")
-                .merge(
-                    deduped.alias("src"),
-                    build_merge_condition(MERGE_KEYS, PARTITION_COL),
-                )
-                .whenMatchedUpdateAll()
-                .whenNotMatchedInsertAll()
-                .execute()
+        if tracker:
+            # Pre-dedup input count — only computed when metrics are on.
+            tracker.record(rows_in=batch_df.count(), rows_out=rows_out)
+
+        dt = DeltaTable.forName(spark, target_table)
+        # OPT-3: lead with the partition column so Delta prunes partitions.
+        (
+            dt.alias("tgt")
+            .merge(
+                deduped.alias("src"),
+                build_merge_condition(MERGE_KEYS, PARTITION_COL),
             )
-        finally:
-            deduped.unpersist()
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
 
     if metrics_table:
         from market_streaming.observability.pipeline_metrics import track_batch

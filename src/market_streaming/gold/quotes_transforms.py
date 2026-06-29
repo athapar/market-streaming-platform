@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pyspark import StorageLevel
 from pyspark.sql import functions as F
 
 from market_streaming.transform_utils import build_merge_condition
@@ -219,47 +218,45 @@ def write_gold_quotes_batch(
     spark = batch_df.sparkSession
 
     def _do_write(tracker=None):
-        # OPT-2: cache the CDF projection — it feeds the row count and the
-        # affected-window distinct below.
+        # NOTE: no persist() — cache is rejected on Databricks serverless
+        # ([NOT_SUPPORTED_WITH_SERVERLESS]). net_new feeds the row count and the
+        # affected-window distinct; it is recomputed for each, as before.
         net_new = (
             batch_df
             .filter(F.col("_change_type").isin("insert", "update_postimage"))
             .drop("_change_type", "_commit_version", "_commit_timestamp")
             .filter(F.col("composite_figi").isNotNull())
-        ).persist(StorageLevel.MEMORY_AND_DISK)
+        )
 
-        try:
-            rows_in = net_new.count()
-            if rows_in == 0:
-                if tracker:
-                    tracker.record(rows_in=0, rows_out=0)
-                return
-
-            # Identify affected (quote_date, minute) windows.
-            affected_windows = (
-                net_new
-                .withColumn("window_start",
-                    F.date_trunc("minute", F.col("sip_timestamp")))
-                .select("quote_date", "window_start")
-                .distinct()
-            )
-
-            # OPT-1: re-read Silver but prune to the affected partitions + minute
-            # range before deriving window_start (see affected_silver_snapshot).
-            silver_snapshot = affected_silver_snapshot(
-                spark.read.format("delta").table(silver_table),
-                affected_windows,
-            )
-
-            stats = aggregate_quote_stats(silver_snapshot)
-            rows_out = stats.count()
-
-            _merge(spark, stats, target_table, MERGE_KEYS, PARTITION_COL)
-
+        rows_in = net_new.count()
+        if rows_in == 0:
             if tracker:
-                tracker.record(rows_in=rows_in, rows_out=rows_out)
-        finally:
-            net_new.unpersist()
+                tracker.record(rows_in=0, rows_out=0)
+            return
+
+        # Identify affected (quote_date, minute) windows.
+        affected_windows = (
+            net_new
+            .withColumn("window_start",
+                F.date_trunc("minute", F.col("sip_timestamp")))
+            .select("quote_date", "window_start")
+            .distinct()
+        )
+
+        # OPT-1: re-read Silver but prune to the affected partitions + minute
+        # range before deriving window_start (see affected_silver_snapshot).
+        silver_snapshot = affected_silver_snapshot(
+            spark.read.format("delta").table(silver_table),
+            affected_windows,
+        )
+
+        stats = aggregate_quote_stats(silver_snapshot)
+        rows_out = stats.count()
+
+        _merge(spark, stats, target_table, MERGE_KEYS, PARTITION_COL)
+
+        if tracker:
+            tracker.record(rows_in=rows_in, rows_out=rows_out)
 
     if metrics_table:
         from market_streaming.observability.pipeline_metrics import track_batch

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pyspark import StorageLevel
 from pyspark.sql import functions as F
 
 from market_streaming.transform_utils import build_merge_condition
@@ -91,28 +90,26 @@ def write_gold_trades_batch(
     spark = batch_df.sparkSession
 
     def _do_write(tracker=None):
-        # OPT-2: cache the CDF projection (consumed by the count and the select).
+        # NOTE: no persist() — cache is rejected on Databricks serverless
+        # ([NOT_SUPPORTED_WITH_SERVERLESS]).
         net_new = (
             batch_df
             .filter(F.col("_change_type").isin("insert", "update_postimage"))
             .drop("_change_type", "_commit_version", "_commit_timestamp")
             .filter(F.col("composite_figi").isNotNull())
-        ).persist(StorageLevel.MEMORY_AND_DISK)
+        )
 
-        try:
-            rows_in = net_new.count()
-            if rows_in == 0:
-                if tracker:
-                    tracker.record(rows_in=0, rows_out=0)
-                return
-
-            gold_rows = net_new.select(GOLD_TRADES_COLUMNS)
-            _merge(spark, gold_rows, target_table, MERGE_KEYS, PARTITION_COL)
-
+        rows_in = net_new.count()
+        if rows_in == 0:
             if tracker:
-                tracker.record(rows_in=rows_in, rows_out=rows_in)
-        finally:
-            net_new.unpersist()
+                tracker.record(rows_in=0, rows_out=0)
+            return
+
+        gold_rows = net_new.select(GOLD_TRADES_COLUMNS)
+        _merge(spark, gold_rows, target_table, MERGE_KEYS, PARTITION_COL)
+
+        if tracker:
+            tracker.record(rows_in=rows_in, rows_out=rows_in)
 
     if metrics_table:
         from market_streaming.observability.pipeline_metrics import track_batch
