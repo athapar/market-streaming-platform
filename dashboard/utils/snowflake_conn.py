@@ -52,6 +52,8 @@ def _load_private_key() -> bytes:
     SNOWFLAKE_PRIVATE_KEY_PATH (a local .p8 path for dev). Set
     SNOWFLAKE_PRIVATE_KEY_PASSPHRASE only if the key is encrypted.
     """
+    import base64
+
     from cryptography.hazmat.primitives import serialization
 
     pem = _secret("SNOWFLAKE_PRIVATE_KEY", required=False)
@@ -69,9 +71,14 @@ def _load_private_key() -> bytes:
             "[snowflake] in Streamlit Cloud secrets, or SNOWFLAKE_PRIVATE_KEY_PATH locally"
         )
 
-    key = serialization.load_pem_private_key(
-        data, password=passphrase.encode() if passphrase else None
-    )
+    pw = passphrase.encode() if passphrase else None
+    if b"BEGIN" in data:
+        # Full PEM (with -----BEGIN ... ----- framing)
+        key = serialization.load_pem_private_key(data, password=pw)
+    else:
+        # Bare base64 of the DER body (pasted without the header/footer lines);
+        # b64decode discards embedded whitespace/newlines before decoding.
+        key = serialization.load_der_private_key(base64.b64decode(data), password=pw)
     return key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,

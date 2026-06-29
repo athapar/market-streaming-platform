@@ -50,6 +50,8 @@ def load_private_key(
     encrypted key. The snowflake connector's ``private_key`` parameter wants
     PKCS#8 DER bytes, which is what this returns.
     """
+    import base64
+
     from cryptography.hazmat.primitives import serialization
 
     if pem:
@@ -63,9 +65,15 @@ def load_private_key(
             "SNOWFLAKE_PRIVATE_KEY_PATH (file path)"
         )
 
-    key = serialization.load_pem_private_key(
-        data, password=passphrase.encode() if passphrase else None
-    )
+    pw = passphrase.encode() if passphrase else None
+    if b"BEGIN" in data:
+        # Full PEM (has -----BEGIN ... ----- framing)
+        key = serialization.load_pem_private_key(data, password=pw)
+    else:
+        # Bare base64 of the DER body (no PEM framing) — e.g. the key pasted
+        # into a secret without the header/footer lines. b64decode discards any
+        # embedded whitespace/newlines before decoding.
+        key = serialization.load_der_private_key(base64.b64decode(data), password=pw)
     return key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
