@@ -275,15 +275,23 @@ def build_gold_quotes_stream(
     trigger_seconds: int = 60,
     starting_version: int = 0,
     metrics_table: str | None = None,
+    max_files_per_trigger: int | None = None,
 ) -> "StreamingQuery":
-    """Read Silver quotes CDF → aggregate → write Gold quote stats."""
-    silver_cdf = (
+    """Read Silver quotes CDF → aggregate → write Gold quote stats.
+
+    max_files_per_trigger bounds each micro-batch so an unbounded availableNow
+    replay from startingVersion=0 over the high-volume quotes feed doesn't plan
+    the whole change feed at once (OOM-kills a fixed-size serverless driver).
+    """
+    reader = (
         spark.readStream
         .format("delta")
         .option("readChangeData", "true")
         .option("startingVersion", starting_version)
-        .table(silver_table)
     )
+    if max_files_per_trigger:
+        reader = reader.option("maxFilesPerTrigger", str(max_files_per_trigger))
+    silver_cdf = reader.table(silver_table)
 
     writer = (
         silver_cdf.writeStream

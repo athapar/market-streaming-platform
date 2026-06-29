@@ -128,15 +128,27 @@ def build_gold_trades_stream(
     trigger_seconds: int = 60,
     starting_version: int = 0,
     metrics_table: str | None = None,
+    max_files_per_trigger: int | None = None,
 ) -> "StreamingQuery":
-    """Read Silver trades CDF → write Gold trades."""
-    silver_cdf = (
+    """Read Silver trades CDF → write Gold trades.
+
+    max_files_per_trigger bounds each micro-batch. silver_trades is the largest
+    source (~18M rows); an unbounded ``availableNow`` replay from
+    ``startingVersion=0`` plans/reads the whole change feed at once and
+    OOM-kills the (fixed-size serverless) driver during source initialization.
+    Bounding the files per trigger drains the backlog in chunks instead, capping
+    peak driver/executor memory. ``availableNow`` still processes everything —
+    it just does it across more, smaller batches.
+    """
+    reader = (
         spark.readStream
         .format("delta")
         .option("readChangeData", "true")
         .option("startingVersion", starting_version)
-        .table(silver_table)
     )
+    if max_files_per_trigger:
+        reader = reader.option("maxFilesPerTrigger", str(max_files_per_trigger))
+    silver_cdf = reader.table(silver_table)
 
     writer = (
         silver_cdf.writeStream

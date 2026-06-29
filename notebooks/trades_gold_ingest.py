@@ -61,6 +61,7 @@ dbutils.widgets.dropdown("trigger_type",           "availableNow",
                          ["availableNow", "processingTime", "once"],                          "Trigger type")
 dbutils.widgets.text(    "trigger_seconds",        "60",                                      "Trigger seconds (processingTime only)")
 dbutils.widgets.text(    "starting_version",       "0",                                       "Silver CDF starting version")
+dbutils.widgets.text(    "max_files_per_trigger",  "200",                                     "Max Delta files per micro-batch (0 = unbounded)")
 
 target_catalog   = dbutils.widgets.get("target_catalog")
 target_schema    = dbutils.widgets.get("target_schema")
@@ -71,12 +72,16 @@ checkpoint_path = "/Volumes/main/market_streaming/checkpoints/gold_trades"
 trigger_type     = dbutils.widgets.get("trigger_type")
 trigger_seconds  = int(dbutils.widgets.get("trigger_seconds"))
 starting_version = int(dbutils.widgets.get("starting_version"))
+# 0 / blank → unbounded (None); otherwise cap files per micro-batch so the
+# large trades CDF backlog drains in chunks instead of OOM-ing the driver.
+max_files_per_trigger = int(dbutils.widgets.get("max_files_per_trigger") or 0) or None
 
 print(f"silver_table    = {silver_table}")
 print(f"target_table    = {target_table}")
 print(f"checkpoint_path = {checkpoint_path}")
 print(f"trigger_type    = {trigger_type}")
 print(f"starting_version= {starting_version}")
+print(f"max_files/trig  = {max_files_per_trigger}")
 
 # COMMAND ----------
 
@@ -103,6 +108,7 @@ query = build_gold_trades_stream(
     trigger_type=trigger_type,
     trigger_seconds=trigger_seconds,
     starting_version=starting_version,
+    max_files_per_trigger=max_files_per_trigger,
 )
 
 print(f"query id     = {query.id}")

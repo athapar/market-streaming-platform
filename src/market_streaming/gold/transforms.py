@@ -263,20 +263,27 @@ def build_gold_stream(
     trigger_seconds: int = 60,
     starting_version: int = 0,
     metrics_table: str | None = None,
+    max_files_per_trigger: int | None = None,
 ) -> "StreamingQuery":
     """Read Silver CDF stream → write_gold_batch → both Gold tables.
 
     starting_version is only used on the very first run (no checkpoint).
     Default 0 means rebuild Gold from all of Silver's history — safe and
     correct. Subsequent runs resume from the checkpoint automatically.
+
+    max_files_per_trigger bounds each micro-batch so an unbounded availableNow
+    replay from startingVersion=0 doesn't plan the whole change feed at once
+    (which OOM-kills a fixed-size serverless driver during source init).
     """
-    silver_cdf = (
+    reader = (
         spark.readStream
         .format("delta")
         .option("readChangeData", "true")
         .option("startingVersion", starting_version)
-        .table(silver_table)
     )
+    if max_files_per_trigger:
+        reader = reader.option("maxFilesPerTrigger", str(max_files_per_trigger))
+    silver_cdf = reader.table(silver_table)
 
     writer = (
         silver_cdf.writeStream
