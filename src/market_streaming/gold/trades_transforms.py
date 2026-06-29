@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql import functions as F
 
-from market_streaming.transform_utils import build_merge_condition
+from market_streaming.transform_utils import build_merge_condition, dedup_keep_latest
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -91,21 +91,30 @@ def write_gold_trades_batch(
 
     def _do_write(tracker=None):
         # NOTE: no persist() — cache is rejected on Databricks serverless
-        # ([NOT_SUPPORTED_WITH_SERVERLESS]).
+        # ([NOT_SUPPORTED_WITH_SERVERLESS]). Keep _commit_version for the dedup
+        # below; drop the rest of the CDF metadata.
         net_new = (
             batch_df
             .filter(F.col("_change_type").isin("insert", "update_postimage"))
-            .drop("_change_type", "_commit_version", "_commit_timestamp")
             .filter(F.col("composite_figi").isNotNull())
+            .drop("_change_type", "_commit_timestamp")
         )
 
-        rows_in = net_new.count()
+        # A single (composite_figi, trade_id) can appear more than once in one
+        # CDF micro-batch — e.g. an insert in one Silver commit and an
+        # update_postimage in a later commit within this batch's version range
+        # (a duplicate trade re-MERGEd in Silver). Merging that source directly
+        # raises DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE, so
+        # collapse to the latest change per key (highest _commit_version) first.
+        deduped = dedup_keep_latest(net_new, MERGE_KEYS, order_col="_commit_version")
+
+        rows_in = deduped.count()
         if rows_in == 0:
             if tracker:
                 tracker.record(rows_in=0, rows_out=0)
             return
 
-        gold_rows = net_new.select(GOLD_TRADES_COLUMNS)
+        gold_rows = deduped.select(GOLD_TRADES_COLUMNS)
         _merge(spark, gold_rows, target_table, MERGE_KEYS, PARTITION_COL)
 
         if tracker:

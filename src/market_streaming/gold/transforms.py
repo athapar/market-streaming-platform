@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql import functions as F
 
-from market_streaming.transform_utils import build_merge_condition
+from market_streaming.transform_utils import build_merge_condition, dedup_keep_latest
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -216,7 +216,8 @@ def write_gold_batch(
         net_new = (
             batch_df
             .filter(F.col("_change_type").isin("insert", "update_postimage"))
-            .drop("_change_type", "_commit_version", "_commit_timestamp")
+            # keep _commit_version for the minute dedup below
+            .drop("_change_type", "_commit_timestamp")
         )
 
         rows_in = net_new.count()
@@ -225,8 +226,15 @@ def write_gold_batch(
                 tracker.record(rows_in=0, rows_out=0)
             return
 
-        # OPT-3: event_date is the partition column for gold_minute_bars.
-        minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
+        # Dedup the CDF batch per minute-bar key before the MERGE: a key can
+        # appear as insert + a later update_postimage within one batch's version
+        # range, which raises DELTA_MULTIPLE_SOURCE_ROW_MATCHING. Keep the latest
+        # image (highest _commit_version). OPT-3: event_date is the partition
+        # column for gold_minute_bars.
+        minute_rows = (
+            dedup_keep_latest(net_new, MINUTE_MERGE_KEYS, order_col="_commit_version")
+            .select(GOLD_MINUTE_COLUMNS)
+        )
         _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS, "event_date")
 
         affected_dates = net_new.select("event_date").distinct()
