@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pyspark import StorageLevel
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     DoubleType,
@@ -35,7 +36,8 @@ from pyspark.sql.types import (
     StructType,
     TimestampType,
 )
-from pyspark.sql.window import Window
+
+from market_streaming.transform_utils import build_merge_condition, dedup_keep_latest
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -83,6 +85,11 @@ SILVER_COLUMNS: list[str] = [
 
 # Natural key for dedup MERGE: one AM bar per symbol per minute
 MERGE_KEYS: list[str] = ["symbol", "window_start"]
+
+# Partition column of the Silver table — added to the MERGE condition so Delta
+# can prune partitions instead of scanning the whole target (OPT-3). It is
+# functionally derived from window_start, so it never changes match semantics.
+PARTITION_COL: str = "event_date"
 
 
 def parse_silver(df: "DataFrame") -> "DataFrame":
@@ -200,39 +207,41 @@ def merge_silver_batch(
     """
     from delta.tables import DeltaTable
 
-    if batch_df.isEmpty():
-        return
-
     spark = batch_df.sparkSession
 
     def _do_merge(tracker=None):
-        rows_in = batch_df.count()
+        # OPT-4: struct-max dedup (no window sort). OPT-2: cache once so the
+        # parse + FIGI-join + dedup lineage isn't recomputed for the rows_out
+        # count and again for the MERGE — and drop the separate isEmpty()/count()
+        # actions (count() handles the empty case).
+        deduped = dedup_keep_latest(batch_df, MERGE_KEYS).persist(
+            StorageLevel.MEMORY_AND_DISK
+        )
+        try:
+            rows_out = deduped.count()
+            if rows_out == 0:
+                if tracker:
+                    tracker.record(rows_in=0, rows_out=0)
+                return
 
-        window_spec = Window.partitionBy(*MERGE_KEYS).orderBy(
-            F.col("kafka_offset").desc()
-        )
-        deduped = (
-            batch_df
-            .withColumn("_rn", F.row_number().over(window_spec))
-            .filter(F.col("_rn") == 1)
-            .drop("_rn")
-        )
-        rows_out = deduped.count()
+            if tracker:
+                # Pre-dedup input count — only computed when metrics are on.
+                tracker.record(rows_in=batch_df.count(), rows_out=rows_out)
 
-        if tracker:
-            tracker.record(rows_in=rows_in, rows_out=rows_out)
-
-        dt = DeltaTable.forName(spark, target_table)
-        merge_condition = " AND ".join(
-            f"tgt.{k} = src.{k}" for k in MERGE_KEYS
-        )
-        (
-            dt.alias("tgt")
-            .merge(deduped.alias("src"), merge_condition)
-            .whenMatchedUpdateAll()
-            .whenNotMatchedInsertAll()
-            .execute()
-        )
+            dt = DeltaTable.forName(spark, target_table)
+            # OPT-3: lead with the partition column so Delta prunes partitions.
+            (
+                dt.alias("tgt")
+                .merge(
+                    deduped.alias("src"),
+                    build_merge_condition(MERGE_KEYS, PARTITION_COL),
+                )
+                .whenMatchedUpdateAll()
+                .whenNotMatchedInsertAll()
+                .execute()
+            )
+        finally:
+            deduped.unpersist()
 
     if metrics_table:
         from market_streaming.observability.pipeline_metrics import track_batch

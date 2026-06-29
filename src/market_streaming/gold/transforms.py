@@ -26,7 +26,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pyspark import StorageLevel
 from pyspark.sql import functions as F
+
+from market_streaming.transform_utils import build_merge_condition
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -161,10 +164,18 @@ def aggregate_daily(silver_df: "DataFrame") -> "DataFrame":
 # MERGE helpers
 # ---------------------------------------------------------------------------
 
-def _merge(spark: "SparkSession", df: "DataFrame", table: str, keys: list[str]) -> None:
+def _merge(
+    spark: "SparkSession",
+    df: "DataFrame",
+    table: str,
+    keys: list[str],
+    partition_col: str | None = None,
+) -> None:
     from delta.tables import DeltaTable
 
-    condition = " AND ".join(f"tgt.{k} = src.{k}" for k in keys)
+    # OPT-3: lead the condition with the partition column (when not already a
+    # key) so Delta prunes partitions instead of scanning the whole target.
+    condition = build_merge_condition(keys, partition_col)
     (
         DeltaTable.forName(spark, table).alias("tgt")
         .merge(df.alias("src"), condition)
@@ -199,32 +210,39 @@ def write_gold_batch(
     spark = batch_df.sparkSession
 
     def _do_write(tracker=None):
+        # OPT-2: cache the CDF projection. It is consumed by the row count, the
+        # minute-bar select, and the affected-dates distinct — without a cache
+        # the CDF read + filter runs for each.
         net_new = (
             batch_df
             .filter(F.col("_change_type").isin("insert", "update_postimage"))
             .drop("_change_type", "_commit_version", "_commit_timestamp")
-        )
+        ).persist(StorageLevel.MEMORY_AND_DISK)
 
-        if net_new.isEmpty():
+        try:
+            rows_in = net_new.count()
+            if rows_in == 0:
+                if tracker:
+                    tracker.record(rows_in=0, rows_out=0)
+                return
+
+            # OPT-3: event_date is the partition column for gold_minute_bars.
+            minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
+            _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS, "event_date")
+
+            affected_dates = net_new.select("event_date").distinct()
+            silver_snapshot = (
+                spark.read.format("delta").table(silver_table)
+                .join(F.broadcast(affected_dates), "event_date")
+            )
+            daily_rows = aggregate_daily(silver_snapshot)
+            # DAILY_MERGE_KEYS already includes event_date, so it prunes already.
+            _merge(spark, daily_rows, daily_table, DAILY_MERGE_KEYS)
+
             if tracker:
-                tracker.record(rows_in=0, rows_out=0)
-            return
-
-        rows_in = net_new.count()
-
-        minute_rows = net_new.select(GOLD_MINUTE_COLUMNS)
-        _merge(spark, minute_rows, minute_table, MINUTE_MERGE_KEYS)
-
-        affected_dates = net_new.select("event_date").distinct()
-        silver_snapshot = (
-            spark.read.format("delta").table(silver_table)
-            .join(F.broadcast(affected_dates), "event_date")
-        )
-        daily_rows = aggregate_daily(silver_snapshot)
-        _merge(spark, daily_rows, daily_table, DAILY_MERGE_KEYS)
-
-        if tracker:
-            tracker.record(rows_in=rows_in, rows_out=rows_in)
+                tracker.record(rows_in=rows_in, rows_out=rows_in)
+        finally:
+            net_new.unpersist()
 
     if metrics_table:
         from market_streaming.observability.pipeline_metrics import track_batch

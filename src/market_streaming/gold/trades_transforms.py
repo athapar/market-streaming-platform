@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pyspark import StorageLevel
 from pyspark.sql import functions as F
+
+from market_streaming.transform_utils import build_merge_condition
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -30,6 +33,9 @@ GOLD_TRADES_COLUMNS: list[str] = [
 ]
 
 MERGE_KEYS: list[str] = ["composite_figi", "trade_id"]
+
+# Partition column — added to the MERGE condition for partition pruning (OPT-3).
+PARTITION_COL: str = "trade_date"
 
 
 def gold_trades_ddl(table: str) -> str:
@@ -55,10 +61,17 @@ TBLPROPERTIES (
 """.strip()
 
 
-def _merge(spark: "SparkSession", df: "DataFrame", table: str, keys: list[str]) -> None:
+def _merge(
+    spark: "SparkSession",
+    df: "DataFrame",
+    table: str,
+    keys: list[str],
+    partition_col: str | None = None,
+) -> None:
     from delta.tables import DeltaTable
 
-    condition = " AND ".join(f"tgt.{k} = src.{k}" for k in keys)
+    # OPT-3: lead the condition with the partition column so Delta prunes.
+    condition = build_merge_condition(keys, partition_col)
     (
         DeltaTable.forName(spark, table).alias("tgt")
         .merge(df.alias("src"), condition)
@@ -78,24 +91,28 @@ def write_gold_trades_batch(
     spark = batch_df.sparkSession
 
     def _do_write(tracker=None):
+        # OPT-2: cache the CDF projection (consumed by the count and the select).
         net_new = (
             batch_df
             .filter(F.col("_change_type").isin("insert", "update_postimage"))
             .drop("_change_type", "_commit_version", "_commit_timestamp")
             .filter(F.col("composite_figi").isNotNull())
-        )
+        ).persist(StorageLevel.MEMORY_AND_DISK)
 
-        if net_new.isEmpty():
+        try:
+            rows_in = net_new.count()
+            if rows_in == 0:
+                if tracker:
+                    tracker.record(rows_in=0, rows_out=0)
+                return
+
+            gold_rows = net_new.select(GOLD_TRADES_COLUMNS)
+            _merge(spark, gold_rows, target_table, MERGE_KEYS, PARTITION_COL)
+
             if tracker:
-                tracker.record(rows_in=0, rows_out=0)
-            return
-
-        rows_in = net_new.count()
-        gold_rows = net_new.select(GOLD_TRADES_COLUMNS)
-        _merge(spark, gold_rows, target_table, MERGE_KEYS)
-
-        if tracker:
-            tracker.record(rows_in=rows_in, rows_out=rows_in)
+                tracker.record(rows_in=rows_in, rows_out=rows_in)
+        finally:
+            net_new.unpersist()
 
     if metrics_table:
         from market_streaming.observability.pipeline_metrics import track_batch
